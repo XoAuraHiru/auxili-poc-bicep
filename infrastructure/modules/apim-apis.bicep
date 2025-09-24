@@ -22,7 +22,8 @@ resource productApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = 
   properties: {
     displayName: 'Products API'
     description: 'API for product management'
-    serviceUrl: 'https://${productFunctionAppHostName}/api'
+    // Point directly to the Functions route base
+    serviceUrl: 'https://${productFunctionAppHostName}/api/products'
     path: 'products'
     protocols: [
       'https'
@@ -89,6 +90,23 @@ resource createProductOperation 'Microsoft.ApiManagement/service/apis/operations
   }
 }
 
+// Product Health
+resource productHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'product-health'
+  parent: productApi
+  properties: {
+    displayName: 'Health'
+    method: 'GET'
+    urlTemplate: '/health'
+    responses: [
+      {
+        statusCode: 200
+        description: 'Health status'
+      }
+    ]
+  }
+}
+
 // User API
 resource userApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   name: 'users-api'
@@ -96,7 +114,8 @@ resource userApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   properties: {
     displayName: 'Users API'
     description: 'API for user management'
-    serviceUrl: 'https://${userFunctionAppHostName}/api'
+    // Point directly to the Functions route base
+    serviceUrl: 'https://${userFunctionAppHostName}/api/users'
     path: 'users'
     protocols: [
       'https'
@@ -141,6 +160,23 @@ resource listUsersOperation 'Microsoft.ApiManagement/service/apis/operations@202
     displayName: 'List Users'
     method: 'GET'
     urlTemplate: '/'
+  }
+}
+
+// User Health
+resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'user-health'
+  parent: userApi
+  properties: {
+    displayName: 'Health'
+    method: 'GET'
+    urlTemplate: '/health'
+    responses: [
+      {
+        statusCode: 200
+        description: 'Health status'
+      }
+    ]
   }
 }
 

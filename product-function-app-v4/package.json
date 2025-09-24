@@ -1,14 +1,14 @@
 {
-  "name": "",
+  "name": "product-function-app",
   "version": "1.0.0",
-  "description": "",
-  "main": "dist/src/functions/*.js",
+  "description": "Product microservice functions",
+  "main": "src/functions/*.js",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "clean": "rimraf dist",
-    "prestart": "npm run clean && npm run build",
-    "start": "func start",
+    "build": "echo \"JavaScript - no build needed\"",
+    "watch": "func start --javascript",
+    "clean": "echo \"No clean needed for JavaScript\"",
+    "prestart": "echo \"No prestart needed\"",
+    "start": "func start --javascript",
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {

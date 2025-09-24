@@ -38,7 +38,8 @@ resource apiManagement 'Microsoft.ApiManagement/service@2023-05-01-preview' = {
     }
   }
   identity: {
-    type: 'SystemAssigned'
+    // APIM Consumption tier does not support Managed Identity
+    type: apimSku == 'Consumption' ? 'None' : 'SystemAssigned'
   }
   tags: {
     Environment: environment
