@@ -60,7 +60,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
     httpsOnly: true
     clientAffinityEnabled: false
     siteConfig: {
-      linuxFxVersion: 'NODE|18'
+      linuxFxVersion: 'NODE|22'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
