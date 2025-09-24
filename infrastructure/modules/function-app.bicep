@@ -22,9 +22,6 @@ param appInsightsConnectionString string
 @description('Application Insights instrumentation key')
 param appInsightsInstrumentationKey string
 
-@description('Enable authentication')
-param enableAuth bool = false
-
 @description('Environment tag')
 param environment string
 

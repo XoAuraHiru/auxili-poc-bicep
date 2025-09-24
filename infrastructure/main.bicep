@@ -13,11 +13,7 @@ param projectName string = 'microservices'
 @description('Admin email for APIM')
 param apimAdminEmail string = 'admin@auxili.com'
 
-@description('Enable private endpoints for production')
-param enablePrivateEndpoints bool = false
-
-@description('Your IP address for development access')
-param developerIpAddress string = ''
+// Note: Private endpoints and developer IP are controlled per-module via env config
 
 // Generate unique suffix for globally unique resources
 var uniqueSuffix = substring(uniqueString(resourceGroup().id), 0, 8)
@@ -49,7 +45,7 @@ var envConfig = {
     functionAppSku: 'Y1'
     functionAppTier: 'Dynamic'
     enableAuth: false
-    enablePrivateEndpoints: false
+  enablePrivateEndpoints: false
     storageRedundancy: 'Standard_LRS'
   }
   staging: {
@@ -57,7 +53,7 @@ var envConfig = {
     functionAppSku: 'EP1'
     functionAppTier: 'ElasticPremium'
     enableAuth: true
-    enablePrivateEndpoints: false
+  enablePrivateEndpoints: false
     storageRedundancy: 'Standard_GRS'
   }
   prod: {
@@ -65,7 +61,7 @@ var envConfig = {
     functionAppSku: 'EP1' 
     functionAppTier: 'ElasticPremium'
     enableAuth: true
-    enablePrivateEndpoints: true
+  enablePrivateEndpoints: true
     storageRedundancy: 'Standard_GRS'
   }
 }
@@ -139,13 +135,9 @@ module productFunction 'modules/function-app.bicep' = {
     storageAccountName: productStorage.outputs.storageAccountName
     appInsightsConnectionString: appInsights.outputs.connectionString
     appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
-    enableAuth: currentConfig.enableAuth
     environment: environment
   }
-  dependsOn: [
-    productStorage
-    appInsights
-  ]
+  // No explicit dependsOn needed; references to productStorage/appInsights outputs create implicit dependency
 }
 
 // User Function App  
@@ -160,13 +152,9 @@ module userFunction 'modules/function-app.bicep' = {
     storageAccountName: userStorage.outputs.storageAccountName
     appInsightsConnectionString: appInsights.outputs.connectionString
     appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
-    enableAuth: currentConfig.enableAuth
     environment: environment
   }
-  dependsOn: [
-    userStorage
-    appInsights
-  ]
+  // Implicit dependency via referenced outputs
 }
 
 // API Management
@@ -187,17 +175,11 @@ module apimApis 'modules/apim-apis.bicep' = {
   name: 'apimApis'
   params: {
     apimName: apim.outputs.apimName
-    productFunctionAppName: productFunction.outputs.functionAppName
-    userFunctionAppName: userFunction.outputs.functionAppName
     productFunctionAppHostName: productFunction.outputs.functionAppHostName
     userFunctionAppHostName: userFunction.outputs.functionAppHostName
     environment: environment
   }
-  dependsOn: [
-    apim
-    productFunction
-    userFunction
-  ]
+  // Implicit dependency via referenced outputs (apim, productFunction, userFunction)
 }
 
 // Outputs for use in deployment scripts

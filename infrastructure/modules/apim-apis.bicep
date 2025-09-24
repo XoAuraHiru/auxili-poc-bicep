@@ -1,12 +1,6 @@
 @description('APIM service name')
 param apimName string
 
-@description('Product Function App name')
-param productFunctionAppName string
-
-@description('User Function App name')
-param userFunctionAppName string
-
 @description('Product Function App hostname')
 param productFunctionAppHostName string
 

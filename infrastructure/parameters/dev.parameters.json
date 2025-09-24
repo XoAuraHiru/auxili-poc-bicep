@@ -14,12 +14,6 @@
     },
     "apimAdminEmail": {
       "value": "astronomyhirunchamara@gmail.com"
-    },
-    "enablePrivateEndpoints": {
-      "value": false
-    },
-    "developerIpAddress": {
-      "value": "0.0.0.0/0"
     }
   }
 }

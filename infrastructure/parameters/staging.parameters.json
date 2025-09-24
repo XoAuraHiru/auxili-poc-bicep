@@ -16,9 +16,6 @@
     },
     "apimAdminEmail": {
       "value": "admin@auxili.com"
-    },
-    "enablePrivateEndpoints": {
-      "value": false
     }
   }
 }
