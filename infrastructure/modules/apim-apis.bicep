@@ -7,6 +7,9 @@ param productFunctionAppHostName string
 @description('User Function App hostname')
 param userFunctionAppHostName string
 
+@description('Orders Function App hostname')
+param ordersFunctionAppHostName string
+
 @description('Environment')
 param environment string
 
@@ -22,8 +25,8 @@ resource productApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = 
   properties: {
     displayName: 'Products API'
     description: 'API for product management'
-    // Point directly to the Functions route base
-    serviceUrl: 'https://${productFunctionAppHostName}/api/products'
+    // Point to the Functions app base API URL
+    serviceUrl: 'https://${productFunctionAppHostName}/api'
     path: 'products'
     protocols: [
       'https'
@@ -40,7 +43,7 @@ resource getProductOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Get Product'
     method: 'GET'
-    urlTemplate: '/{id}'
+    urlTemplate: '/products/{id}'
     templateParameters: [
       {
         name: 'id'
@@ -70,7 +73,7 @@ resource createProductOperation 'Microsoft.ApiManagement/service/apis/operations
   properties: {
     displayName: 'Create Product'
     method: 'POST'
-    urlTemplate: '/'
+    urlTemplate: '/products'
     request: {
       headers: [
         {
@@ -97,7 +100,7 @@ resource productHealthOperation 'Microsoft.ApiManagement/service/apis/operations
   properties: {
     displayName: 'Health'
     method: 'GET'
-    urlTemplate: '/health'
+    urlTemplate: '/products/health'
     responses: [
       {
         statusCode: 200
@@ -114,8 +117,8 @@ resource userApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   properties: {
     displayName: 'Users API'
     description: 'API for user management'
-    // Point directly to the Functions route base
-    serviceUrl: 'https://${userFunctionAppHostName}/api/users'
+    // Point to the Functions app base API URL
+    serviceUrl: 'https://${userFunctionAppHostName}/api'
     path: 'users'
     protocols: [
       'https'
@@ -132,7 +135,7 @@ resource getUserOperation 'Microsoft.ApiManagement/service/apis/operations@2023-
   properties: {
     displayName: 'Get User'
     method: 'GET'
-    urlTemplate: '/{id}'
+    urlTemplate: '/users/{id}'
     templateParameters: [
       {
         name: 'id'
@@ -149,7 +152,7 @@ resource createUserOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Create User'
     method: 'POST'
-    urlTemplate: '/'
+    urlTemplate: '/users'
   }
 }
 
@@ -159,7 +162,7 @@ resource listUsersOperation 'Microsoft.ApiManagement/service/apis/operations@202
   properties: {
     displayName: 'List Users'
     method: 'GET'
-    urlTemplate: '/'
+    urlTemplate: '/users'
   }
 }
 
@@ -170,7 +173,7 @@ resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Health'
     method: 'GET'
-    urlTemplate: '/health'
+    urlTemplate: '/users/health'
     responses: [
       {
         statusCode: 200
@@ -189,6 +192,9 @@ resource productApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05
     <policies>
       <inbound>
         <base />
+        <set-header name="x-functions-key" exists-action="override">
+          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+        </set-header>
         <rate-limit calls="100" renewal-period="60" />
         <cors>
           <allowed-origins>
@@ -223,6 +229,106 @@ resource userApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
     <policies>
       <inbound>
         <base />
+        <set-header name="x-functions-key" exists-action="override">
+          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+        </set-header>
+        <rate-limit calls="100" renewal-period="60" />
+        <cors>
+          <allowed-origins>
+            <origin>*</origin>
+          </allowed-origins>
+          <allowed-methods>
+            <method>GET</method>
+            <method>POST</method>
+            <method>OPTIONS</method>
+          </allowed-methods>
+        </cors>
+      </inbound>
+      <backend>
+        <base />
+      </backend>
+      <outbound>
+        <base />
+      </outbound>
+      <on-error>
+        <base />
+      </on-error>
+    </policies>
+    '''
+  }
+}
+
+// Orders API (v3)
+resource ordersApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
+  name: 'orders-api'
+  parent: apiManagement
+  properties: {
+    displayName: 'Orders API (v3)'
+    description: 'API for order management using Functions v3'
+    // Point to the Functions app base API URL
+    serviceUrl: 'https://${ordersFunctionAppHostName}/api'
+    path: 'orders'
+    protocols: [
+      'https'
+    ]
+    subscriptionRequired: environment != 'dev'
+    isCurrent: true
+  }
+}
+
+// Orders API Operations
+resource getOrderOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'get-order'
+  parent: ordersApi
+  properties: {
+    displayName: 'Get Order'
+    method: 'GET'
+    urlTemplate: '/orders/{id}'
+    templateParameters: [
+      {
+        name: 'id'
+        type: 'string'
+        required: true
+      }
+    ]
+    responses: [
+      {
+        statusCode: 200
+        description: 'Order details'
+      }
+    ]
+  }
+}
+
+// Orders Health
+resource ordersHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'orders-health'
+  parent: ordersApi
+  properties: {
+    displayName: 'Health'
+    method: 'GET'
+    urlTemplate: '/orders/health'
+    responses: [
+      {
+        statusCode: 200
+        description: 'Health status'
+      }
+    ]
+  }
+}
+
+// Orders API Policy - with function key forwarding
+resource ordersApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
+  name: 'policy'
+  parent: ordersApi
+  properties: {
+    value: '''
+    <policies>
+      <inbound>
+        <base />
+        <set-header name="x-functions-key" exists-action="override">
+          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+        </set-header>
         <rate-limit calls="100" renewal-period="60" />
         <cors>
           <allowed-origins>
@@ -252,3 +358,4 @@ resource userApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
 // Outputs
 output productApiName string = productApi.name
 output userApiName string = userApi.name
+output ordersApiName string = ordersApi.name

@@ -23,10 +23,12 @@ var naming = {
   // Storage accounts (must be globally unique, lowercase, no special chars)
   productStorage: 'st${orgName}prod${environment}${uniqueSuffix}'
   userStorage: 'st${orgName}user${environment}${uniqueSuffix}'
+  ordersStorage: 'st${orgName}ord${environment}${uniqueSuffix}'
   
   // Function Apps (must be globally unique)
   productFunction: 'func-${orgName}-product-${environment}-${uniqueSuffix}'
   userFunction: 'func-${orgName}-user-${environment}-${uniqueSuffix}'
+  ordersFunction: 'func-${orgName}-orders-${environment}-${uniqueSuffix}'
   
   // Other resources
   appInsights: 'ai-${orgName}-${projectName}-${environment}'
@@ -36,6 +38,7 @@ var naming = {
   // App Service Plans
   productPlan: 'plan-${orgName}-product-${environment}'
   userPlan: 'plan-${orgName}-user-${environment}'
+  ordersPlan: 'plan-${orgName}-orders-v3-${environment}'
 }
 
 // Environment-specific configuration
@@ -123,6 +126,17 @@ module userStorage 'modules/storage.bicep' = {
   }
 }
 
+module ordersStorage 'modules/storage.bicep' = {
+  name: 'ordersStorage'
+  params: {
+    location: location
+    storageAccountName: naming.ordersStorage
+    redundancy: currentConfig.storageRedundancy
+    enablePrivateEndpoints: currentConfig.enablePrivateEndpoints
+    environment: environment
+  }
+}
+
 // Product Function App
 module productFunction 'modules/function-app.bicep' = {
   name: 'productFunction'
@@ -157,6 +171,23 @@ module userFunction 'modules/function-app.bicep' = {
   // Implicit dependency via referenced outputs
 }
 
+// Orders Function App (v3)
+module ordersFunction 'modules/function-app-v3.bicep' = {
+  name: 'ordersFunction'
+  params: {
+    location: location
+    functionAppName: naming.ordersFunction
+    appServicePlanName: naming.ordersPlan
+    appServicePlanSku: currentConfig.functionAppSku
+    appServicePlanTier: currentConfig.functionAppTier
+    storageAccountName: ordersStorage.outputs.storageAccountName
+    appInsightsConnectionString: appInsights.outputs.connectionString
+    appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
+    environment: environment
+  }
+  // Implicit dependency via referenced outputs
+}
+
 // API Management
 module apim 'modules/apim.bicep' = {
   name: 'apim'
@@ -177,17 +208,20 @@ module apimApis 'modules/apim-apis.bicep' = {
     apimName: apim.outputs.apimName
     productFunctionAppHostName: productFunction.outputs.functionAppHostName
     userFunctionAppHostName: userFunction.outputs.functionAppHostName
+    ordersFunctionAppHostName: ordersFunction.outputs.functionAppHostName
     environment: environment
   }
-  // Implicit dependency via referenced outputs (apim, productFunction, userFunction)
+  // Implicit dependency via referenced outputs (apim, productFunction, userFunction, ordersFunction)
 }
 
 // Outputs for use in deployment scripts
 output resourceGroupName string = resourceGroup().name
 output productFunctionAppName string = productFunction.outputs.functionAppName
 output userFunctionAppName string = userFunction.outputs.functionAppName
+output ordersFunctionAppName string = ordersFunction.outputs.functionAppName
 output apimName string = apim.outputs.apimName
 output apimGatewayUrl string = apim.outputs.gatewayUrl
 output productFunctionAppHostName string = productFunction.outputs.functionAppHostName
 output userFunctionAppHostName string = userFunction.outputs.functionAppHostName
+output ordersFunctionAppHostName string = ordersFunction.outputs.functionAppHostName
 output appInsightsName string = appInsights.outputs.appInsightsName

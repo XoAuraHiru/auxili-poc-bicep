@@ -1,0 +1,17 @@
+{
+    "name": "orders-function-app-v3",
+    "version": "1.0.0",
+    "description": "Orders microservice using Azure Functions v3",
+    "main": "index.js",
+    "scripts": {
+        "start": "func start",
+        "test": "echo \"No tests specified\""
+    },
+    "dependencies": {
+        "azure-functions-core-tools": "^3.0.0"
+    },
+    "devDependencies": {},
+    "engines": {
+        "node": ">=14.0.0"
+    }
+}
