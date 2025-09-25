@@ -316,6 +316,17 @@ resource getProfileOperation 'Microsoft.ApiManagement/service/apis/operations@20
   }
 }
 
+resource authCallbackOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'callback'
+  parent: authApi
+  properties: {
+    displayName: 'OAuth Callback'
+    method: 'GET'
+    urlTemplate: '/callback'
+    description: 'Handles OAuth authorization code exchange via Azure Functions.'
+  }
+}
+
 // Auth API Policies - inject function key for all auth operations
 resource authApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'

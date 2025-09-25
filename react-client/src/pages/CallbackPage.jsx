@@ -20,7 +20,11 @@ function CallbackPage() {
 
     async function completeLogin() {
       if (!code) {
-        setError("No authorization code provided. Try signing in again.");
+        setError({
+          message: "No authorization code provided. Try signing in again.",
+          correlationId: null,
+          details: null,
+        });
         return;
       }
 
@@ -55,7 +59,13 @@ function CallbackPage() {
       } catch (err) {
         console.error("[CallbackPage] Sign-in completion failed", err);
         clearAuthState();
-        setError(err.message || "Unable to complete sign-in");
+        const message =
+          err?.data?.error || err?.message || "Unable to complete sign-in";
+        setError({
+          message,
+          correlationId: err?.data?.correlationId ?? null,
+          details: err?.data?.details ?? null,
+        });
       } finally {
         setLoading(false);
       }
@@ -70,8 +80,14 @@ function CallbackPage() {
         <div className="card card--centered">
           <h1>Authentication error</h1>
           <p role="alert" className="error-message">
-            {error}
+            {error.message}
           </p>
+          {error.correlationId && (
+            <p className="muted">
+              Correlation ID:{" "}
+              <span className="mono">{error.correlationId}</span>
+            </p>
+          )}
           <button
             type="button"
             className="btn"
