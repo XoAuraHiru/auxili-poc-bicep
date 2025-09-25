@@ -77,11 +77,14 @@ app.http('SignIn', {
         const correlationId = withCorrelation(context, request);
 
         try {
+            const clientRedirectUri = process.env.CLIENT_REDIRECT_URI || 'http://localhost:3000/auth/callback';
+            const serverRedirectUri = process.env.SERVER_REDIRECT_URI || 'https://func-auxili-user-dev-ad7stftg.azurewebsites.net/auth/callback';
+
             if (request.method.toUpperCase() === 'GET') {
                 // Generate OAuth2 authorization URL for Entra ID
                 const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
                 const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
-                const redirectUri = encodeURIComponent('https://func-auxili-user-dev-ad7stftg.azurewebsites.net/auth/callback');
+                const redirectUri = encodeURIComponent(serverRedirectUri);
                 const scope = encodeURIComponent('openid profile email');
                 const state = encodeURIComponent(correlationId);
                 const responseType = 'code';
@@ -107,7 +110,7 @@ app.http('SignIn', {
                 // POST method - return authorization URL for SPA/API clients
                 const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
                 const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
-                const redirectUri = 'http://localhost:3000/auth/callback'; // For local development
+                const redirectUri = clientRedirectUri; // For local development / configurable
                 const scope = 'openid profile email';
 
                 const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
@@ -153,6 +156,20 @@ app.http('AuthCallback', {
             const error = url.searchParams.get('error');
             const errorDescription = url.searchParams.get('error_description');
 
+            const callbackUrl = `${url.origin}${url.pathname}`;
+            const serverRedirectUri = process.env.SERVER_REDIRECT_URI || callbackUrl;
+
+            if (!process.env.SERVER_REDIRECT_URI) {
+                context.log.warn(`[AuthCallback] SERVER_REDIRECT_URI not configured. Falling back to ${serverRedirectUri}`);
+            }
+
+            context.log(`[AuthCallback] Handling code exchange ${JSON.stringify({
+                correlationId,
+                state,
+                callbackUrl,
+                serverRedirectUri
+            })}`);
+
             if (error) {
                 context.log.error(`[AuthCallback] OAuth error: ${error} - ${errorDescription}`);
                 return failure(400, `Authentication failed: ${errorDescription}`, correlationId);
@@ -166,18 +183,19 @@ app.http('AuthCallback', {
             // Exchange authorization code for tokens
             const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
             const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
-            const redirectUri = 'https://func-auxili-user-dev-ad7stftg.azurewebsites.net/auth/callback';
 
             const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
             const tokenRequest = new URLSearchParams({
                 client_id: clientId,
-                scope: 'openid profile email',
+                scope: 'openid profile email offline_access',
                 code: code,
-                redirect_uri: redirectUri,
+                redirect_uri: serverRedirectUri,
                 grant_type: 'authorization_code',
-                // Note: In production, you'd need client_secret or certificate authentication
-                // For now, this will work with public client configuration
             });
+
+            if (process.env.CLIENT_SECRET) {
+                tokenRequest.append('client_secret', process.env.CLIENT_SECRET);
+            }
 
             const tokenResponse = await fetch(tokenUrl, {
                 method: 'POST',
@@ -190,12 +208,48 @@ app.http('AuthCallback', {
             const tokenData = await tokenResponse.json();
 
             if (!tokenResponse.ok) {
-                context.log.error('[AuthCallback] Token exchange failed:', tokenData);
-                return failure(400, `Token exchange failed: ${tokenData.error_description}`, correlationId);
+                const status = tokenResponse.status;
+                context.log.error(`[AuthCallback] Token exchange failed ${JSON.stringify({
+                    status,
+                    tokenUrl,
+                    serverRedirectUri,
+                    data: tokenData
+                })}`);
+
+                let errorMessage = tokenData.error_description || tokenData.error || 'Unknown token error';
+                if (tokenData.error === 'invalid_grant') {
+                    errorMessage += ' (Check that SERVER_REDIRECT_URI matches the redirect URI registered in Entra ID and APIM.)';
+                }
+
+                return failure(status, `Token exchange failed: ${errorMessage}`, correlationId, tokenData);
             }
 
-            // Decode the ID token to get user info (without verification for now)
-            const idTokenPayload = JSON.parse(Buffer.from(tokenData.id_token.split('.')[1], 'base64').toString());
+            if (!tokenData.id_token) {
+                context.log.error('[AuthCallback] Missing id_token in response', tokenData);
+                return failure(400, 'Token exchange did not return an ID token', correlationId, tokenData);
+            }
+
+            const decodeJwtPayload = (jwt) => {
+                const parts = jwt.split('.');
+                if (parts.length !== 3) {
+                    throw new Error('Invalid JWT structure');
+                }
+
+                const base64Url = parts[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+
+                const decoded = Buffer.from(base64 + padding, 'base64').toString();
+                return JSON.parse(decoded);
+            };
+
+            let idTokenPayload;
+            try {
+                idTokenPayload = decodeJwtPayload(tokenData.id_token);
+            } catch (decodeError) {
+                context.log.error('[AuthCallback] Failed to decode id_token payload', decodeError);
+                return failure(400, 'Token exchange returned an invalid ID token', correlationId);
+            }
 
             const user = {
                 id: idTokenPayload.sub,
@@ -220,7 +274,11 @@ app.http('AuthCallback', {
             }, correlationId);
 
         } catch (error) {
-            context.log.error(`[AuthCallback] Error: ${error.message}`);
+            context.log.error(`[AuthCallback] Unexpected error during callback handling ${JSON.stringify({
+                message: error.message,
+                stack: error.stack,
+                correlationId
+            })}`);
             return failure(500, 'Internal server error', correlationId);
         }
     }
@@ -244,6 +302,7 @@ app.http('SignUp', {
 
             const { username, email, password, firstName, lastName } = body;
             const displayName = `${firstName} ${lastName}`;
+            const clientRedirectUri = process.env.CLIENT_REDIRECT_URI || 'http://localhost:3000/auth/callback';
 
             // For signup, we need to invite the user to Entra ID
             // This requires admin consent and appropriate permissions
@@ -254,7 +313,7 @@ app.http('SignUp', {
                 displayName: displayName,
                 status: 'invitation_ready',
                 message: 'To complete registration, please use the OAuth2 sign-in flow',
-                authUrl: `https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/authorize?client_id=f5c94ff4-4e57-4b2d-8cbd-64d4846817ba&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Fcallback&scope=openid%20profile%20email&state=${correlationId}&response_mode=query`,
+                authUrl: `https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/authorize?client_id=f5c94ff4-4e57-4b2d-8cbd-64d4846817ba&response_type=code&redirect_uri=${encodeURIComponent(clientRedirectUri)}&scope=openid%20profile%20email&state=${correlationId}&response_mode=query`,
                 instructions: [
                     '1. Use the provided authUrl to authenticate with Azure Entra ID',
                     '2. Complete the OAuth2 flow to get your access token',
