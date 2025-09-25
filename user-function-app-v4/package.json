@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "User microservice functions",
   "main": "src/functions/*.js",
+  "type": "module",
   "scripts": {
     "build": "echo \"JavaScript - no build needed\"",
-    "watch": "func start --javascript",
-    "clean": "echo \"No clean needed for JavaScript\"",
-    "prestart": "echo \"No prestart needed\"",
     "start": "func start --javascript",
+    "deploy": "func azure functionapp publish",
+    "logs": "func azure functionapp logstream",
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {

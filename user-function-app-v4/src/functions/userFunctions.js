@@ -1,11 +1,11 @@
 import { app } from '@azure/functions';
 import Ajv from 'ajv';
-import addFormats from 'ajv-formats';  // For email format validation
+import addFormats from 'ajv-formats';
 import { withCorrelation, success, failure } from '../utils/shared.js';
 
 // Setup validation with email format support
 const ajv = new Ajv();
-addFormats(ajv);  // Adds email format validation
+addFormats(ajv);
 
 const createUserSchema = {
     type: 'object',
@@ -89,7 +89,7 @@ app.http('CreateUser', {
     }
 });
 
-// GET /api/users (List users - bonus endpoint)
+// GET /api/users (List users)
 app.http('ListUsers', {
     methods: ['GET'],
     authLevel: 'function',
@@ -98,7 +98,11 @@ app.http('ListUsers', {
         const correlationId = withCorrelation(context, request);
         
         try {
-            // Mock user list (replace with database query)
+            // Check if this is a GET to /users (list) vs POST to /users (create)
+            if (request.method.toUpperCase() !== 'GET') {
+                return failure(405, 'Method not allowed', correlationId);
+            }
+            
             const users = [
                 { id: '1', username: 'alice', email: 'alice@example.com' },
                 { id: '2', username: 'bob', email: 'bob@example.com' },

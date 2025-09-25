@@ -10,7 +10,7 @@ param appServicePlanName string
 @description('App Service Plan SKU')
 param appServicePlanSku string
 
-@description('App Service Plan tier')
+@description('App Service Plan tier')  
 param appServicePlanTier string
 
 @description('Storage Account name for Function App')
@@ -44,7 +44,6 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   }
 }
 
-// Function App
 resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
   name: functionAppName
   location: location
@@ -57,7 +56,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
     httpsOnly: true
     clientAffinityEnabled: false
     siteConfig: {
-  linuxFxVersion: 'NODE|20'
+      linuxFxVersion: 'NODE|20'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
@@ -129,3 +128,4 @@ output functionAppName string = functionApp.name
 output functionAppId string = functionApp.id
 output functionAppHostName string = functionApp.properties.defaultHostName
 output functionAppPrincipalId string = functionApp.identity.principalId
+output functionAppDefaultHostKey string = listkeys('${functionApp.id}/host/default', '2022-09-01').functionKeys.default

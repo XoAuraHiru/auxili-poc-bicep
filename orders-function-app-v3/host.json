@@ -7,10 +7,16 @@
                 "isEnabled": true,
                 "excludedTypes": "Request"
             }
+        },
+        "logLevel": {
+            "default": "Information"
         }
     },
     "extensionBundle": {
         "id": "Microsoft.Azure.Functions.ExtensionBundle",
         "version": "[2.*, 3.0.0)"
+    },
+    "http": {
+        "routePrefix": "api"
     }
 }

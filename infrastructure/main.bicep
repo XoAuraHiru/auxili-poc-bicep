@@ -207,11 +207,13 @@ module apimApis 'modules/apim-apis.bicep' = {
   params: {
     apimName: apim.outputs.apimName
     productFunctionAppHostName: productFunction.outputs.functionAppHostName
+    productFunctionAppName: productFunction.outputs.functionAppName 
     userFunctionAppHostName: userFunction.outputs.functionAppHostName
+    userFunctionAppName: userFunction.outputs.functionAppName
     ordersFunctionAppHostName: ordersFunction.outputs.functionAppHostName
+    ordersFunctionAppName: ordersFunction.outputs.functionAppName
     environment: environment
   }
-  // Implicit dependency via referenced outputs (apim, productFunction, userFunction, ordersFunction)
 }
 
 // Outputs for use in deployment scripts

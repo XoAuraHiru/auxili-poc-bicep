@@ -4,8 +4,11 @@
     "description": "Orders microservice using Azure Functions v3",
     "main": "index.js",
     "scripts": {
-        "start": "func start",
-        "test": "echo \"No tests specified\""
+        "build": "echo \"JavaScript - no build needed\"",
+        "start": "func start --javascript",
+        "deploy": "func azure functionapp publish",
+        "logs": "func azure functionapp logstream",
+        "test": "echo \"No tests yet...\""
     },
     "dependencies": {
         "azure-functions-core-tools": "^3.0.0"

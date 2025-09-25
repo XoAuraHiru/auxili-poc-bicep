@@ -4,11 +4,20 @@ param apimName string
 @description('Product Function App hostname')
 param productFunctionAppHostName string
 
-@description('User Function App hostname')
+@description('Product Function App name for key retrieval')
+param productFunctionAppName string
+
+@description('User Function App hostname') 
 param userFunctionAppHostName string
+
+@description('User Function App name for key retrieval')
+param userFunctionAppName string
 
 @description('Orders Function App hostname')
 param ordersFunctionAppHostName string
+
+@description('Orders Function App name for key retrieval')
+param ordersFunctionAppName string
 
 @description('Environment')
 param environment string
@@ -18,6 +27,19 @@ resource apiManagement 'Microsoft.ApiManagement/service@2023-05-01-preview' exis
   name: apimName
 }
 
+// Get existing Function Apps to retrieve keys
+resource productFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: productFunctionAppName
+}
+
+resource userFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: userFunctionAppName  
+}
+
+resource ordersFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: ordersFunctionAppName
+}
+
 // Product API
 resource productApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   name: 'products-api'
@@ -25,12 +47,9 @@ resource productApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = 
   properties: {
     displayName: 'Products API'
     description: 'API for product management'
-    // Point to the Functions app base API URL
     serviceUrl: 'https://${productFunctionAppHostName}/api'
     path: 'products'
-    protocols: [
-      'https'
-    ]
+    protocols: ['https']
     subscriptionRequired: environment != 'dev'
     isCurrent: true
   }
@@ -51,19 +70,6 @@ resource getProductOperation 'Microsoft.ApiManagement/service/apis/operations@20
         required: true
       }
     ]
-    responses: [
-      {
-        statusCode: 200
-        description: 'Product details'
-        headers: [
-          {
-            name: 'Content-Type'
-            type: 'string'
-            values: ['application/json']
-          }
-        ]
-      }
-    ]
   }
 }
 
@@ -74,26 +80,9 @@ resource createProductOperation 'Microsoft.ApiManagement/service/apis/operations
     displayName: 'Create Product'
     method: 'POST'
     urlTemplate: '/products'
-    request: {
-      headers: [
-        {
-          name: 'Content-Type'
-          type: 'string'
-          values: ['application/json']
-          required: true
-        }
-      ]
-    }
-    responses: [
-      {
-        statusCode: 201
-        description: 'Product created'
-      }
-    ]
   }
 }
 
-// Product Health
 resource productHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'product-health'
   parent: productApi
@@ -101,28 +90,19 @@ resource productHealthOperation 'Microsoft.ApiManagement/service/apis/operations
     displayName: 'Health'
     method: 'GET'
     urlTemplate: '/products/health'
-    responses: [
-      {
-        statusCode: 200
-        description: 'Health status'
-      }
-    ]
   }
 }
 
-// User API
+// User API (similar pattern)
 resource userApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   name: 'users-api'
   parent: apiManagement
   properties: {
     displayName: 'Users API'
     description: 'API for user management'
-    // Point to the Functions app base API URL
     serviceUrl: 'https://${userFunctionAppHostName}/api'
     path: 'users'
-    protocols: [
-      'https'
-    ]
+    protocols: ['https']
     subscriptionRequired: environment != 'dev'
     isCurrent: true
   }
@@ -166,7 +146,6 @@ resource listUsersOperation 'Microsoft.ApiManagement/service/apis/operations@202
   }
 }
 
-// User Health
 resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'user-health'
   parent: userApi
@@ -174,16 +153,10 @@ resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@20
     displayName: 'Health'
     method: 'GET'
     urlTemplate: '/users/health'
-    responses: [
-      {
-        statusCode: 200
-        description: 'Health status'
-      }
-    ]
   }
 }
 
-// API Policies for rate limiting and security
+// API Policies with dynamic function key retrieval
 resource productApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
   parent: productApi
@@ -193,7 +166,7 @@ resource productApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05
       <inbound>
         <base />
         <set-header name="x-functions-key" exists-action="override">
-          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+          <value>${listkeys('${productFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
         </set-header>
         <rate-limit calls="100" renewal-period="60" />
         <cors>
@@ -230,7 +203,7 @@ resource userApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
       <inbound>
         <base />
         <set-header name="x-functions-key" exists-action="override">
-          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+          <value>${listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
         </set-header>
         <rate-limit calls="100" renewal-period="60" />
         <cors>
@@ -258,25 +231,21 @@ resource userApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
   }
 }
 
-// Orders API (v3)
+// Orders API and policy (similar pattern)
 resource ordersApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   name: 'orders-api'
   parent: apiManagement
   properties: {
     displayName: 'Orders API (v3)'
     description: 'API for order management using Functions v3'
-    // Point to the Functions app base API URL
     serviceUrl: 'https://${ordersFunctionAppHostName}/api'
     path: 'orders'
-    protocols: [
-      'https'
-    ]
+    protocols: ['https']
     subscriptionRequired: environment != 'dev'
     isCurrent: true
   }
 }
 
-// Orders API Operations
 resource getOrderOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'get-order'
   parent: ordersApi
@@ -291,16 +260,9 @@ resource getOrderOperation 'Microsoft.ApiManagement/service/apis/operations@2023
         required: true
       }
     ]
-    responses: [
-      {
-        statusCode: 200
-        description: 'Order details'
-      }
-    ]
   }
 }
 
-// Orders Health
 resource ordersHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'orders-health'
   parent: ordersApi
@@ -308,16 +270,9 @@ resource ordersHealthOperation 'Microsoft.ApiManagement/service/apis/operations@
     displayName: 'Health'
     method: 'GET'
     urlTemplate: '/orders/health'
-    responses: [
-      {
-        statusCode: 200
-        description: 'Health status'
-      }
-    ]
   }
 }
 
-// Orders API Policy - with function key forwarding
 resource ordersApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
   parent: ordersApi
@@ -327,7 +282,7 @@ resource ordersApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-
       <inbound>
         <base />
         <set-header name="x-functions-key" exists-action="override">
-          <value>QGV2hdDlnpomiPpZ6YmCXGkKNtgXzFKOs8a2uCPgThxAAzFuroTuvQ==</value>
+          <value>${listkeys('${ordersFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
         </set-header>
         <rate-limit calls="100" renewal-period="60" />
         <cors>
