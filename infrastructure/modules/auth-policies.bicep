@@ -26,49 +26,29 @@ var jwtValidationPolicy = enableAuth ? '''
 <policies>
   <inbound>
     <base />
-    <!-- JWT Token Validation -->
+    <!-- JWT Token Validation - simplified without openid-config -->
     <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
-      <openid-config url="${issuerUrl}/.well-known/openid_configuration" />
-      <required-claims>
-        <claim name="aud">
-          <value>${applicationId}</value>
-        </claim>
-        <claim name="iss">
-          <value>${issuerUrl}</value>
-        </claim>
-      </required-claims>
+      <audiences>
+        <audience>${applicationId}</audience>
+      </audiences>
+      <issuers>
+        <issuer>${issuerUrl}</issuer>
+      </issuers>
     </validate-jwt>
-    
-    <!-- Extract user information from JWT -->
-    <set-variable name="userId" value="@{
-      var jwt = context.Request.Headers.GetValueOrDefault("Authorization", "").Replace("Bearer ", "");
-      if (string.IsNullOrEmpty(jwt)) return "anonymous";
-      
-      try {
-        var payload = jwt.Split('.')[1];
-        var paddedPayload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
-        var decodedBytes = Convert.FromBase64String(paddedPayload);
-        var decodedText = System.Text.Encoding.UTF8.GetString(decodedBytes);
-        var token = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(decodedText);
-        return token.sub ?? token.oid ?? "unknown";
-      } catch {
-        return "invalid";
-      }
-    }" />
     
     <!-- Set user context headers for downstream services -->
     <set-header name="X-User-Id" exists-action="override">
-      <value>@((string)context.Variables["userId"])</value>
+      <value>authenticated-user</value>
     </set-header>
     
-    <!-- Rate limiting per user -->
-    <rate-limit-by-key calls="1000" renewal-period="3600" counter-key="@((string)context.Variables["userId"])" />
+    <!-- Rate limiting per authenticated user -->
+    <rate-limit calls="100" renewal-period="60" />
     
     <!-- CORS for browser clients -->
     <cors allow-credentials="true">
       <allowed-origins>
         <origin>http://localhost:3000</origin>
-        <origin>https://*.azurewebsites.net</origin>
+        <origin>https://oauth.pstmn.io</origin>
       </allowed-origins>
       <allowed-methods>
         <method>GET</method>
@@ -153,6 +133,9 @@ var publicEndpointsPolicy = '''
       </allowed-origins>
       <allowed-methods>
         <method>GET</method>
+        <method>POST</method>
+        <method>PUT</method>
+        <method>DELETE</method>
         <method>OPTIONS</method>
       </allowed-methods>
       <allowed-headers>

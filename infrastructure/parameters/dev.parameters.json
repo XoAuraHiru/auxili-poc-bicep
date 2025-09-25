@@ -17,6 +17,9 @@
     },
     "entraAppId": {
       "value": "f5c94ff4-4e57-4b2d-8cbd-64d4846817ba"
+    },
+    "enableAuthentication": {
+      "value": true
     }
   }
 }

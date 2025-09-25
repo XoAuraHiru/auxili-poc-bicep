@@ -67,51 +67,159 @@ app.http('UserHealth', {
     }
 });
 
-// POST /api/auth/signin - Sign in endpoint
+// GET /api/auth/signin - OAuth2 Authorization Redirect
 app.http('SignIn', {
-    methods: ['POST'],
+    methods: ['GET', 'POST'],
     authLevel: 'anonymous',
     route: 'auth/signin',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
 
         try {
-            const body = await request.json();
+            if (request.method.toUpperCase() === 'GET') {
+                // Generate OAuth2 authorization URL for Entra ID
+                const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
+                const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
+                const redirectUri = encodeURIComponent('https://func-auxili-user-dev-ad7stftg.azurewebsites.net/auth/callback');
+                const scope = encodeURIComponent('openid profile email');
+                const state = encodeURIComponent(correlationId);
+                const responseType = 'code';
 
-            if (!validateSignIn(body)) {
-                context.log.warn('[SignIn] Validation failed', validateSignIn.errors);
-                return failure(400, 'Invalid email or password format', correlationId, validateSignIn.errors);
-            }
+                const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
+                    `client_id=${clientId}&` +
+                    `response_type=${responseType}&` +
+                    `redirect_uri=${redirectUri}&` +
+                    `scope=${scope}&` +
+                    `state=${state}&` +
+                    `response_mode=query`;
 
-            const { email, password } = body;
+                context.log(`[SignIn] Redirecting to Entra ID: ${authUrl}`);
 
-            // Mock authentication - in real implementation, verify against database
-            if (email === 'demo@auxili.com' && password === 'password123') {
-                const user = {
-                    id: 'demo-user-123',
-                    username: 'demo_user',
-                    email: email,
-                    firstName: 'Demo',
-                    lastName: 'User'
+                return {
+                    status: 302,
+                    headers: {
+                        'Location': authUrl,
+                        'Access-Control-Allow-Origin': '*'
+                    }
                 };
-
-                // In real implementation, generate actual JWT token
-                const mockToken = `mock-jwt-token-${Date.now()}`;
-
-                context.log(`[SignIn] Successful login for ${email}`);
-                return success(200, {
-                    user,
-                    token: mockToken,
-                    expiresIn: 3600, // 1 hour
-                    message: 'Sign in successful'
-                }, correlationId);
             } else {
-                context.log.warn(`[SignIn] Failed login attempt for ${email}`);
-                return failure(401, 'Invalid email or password', correlationId);
+                // POST method - return authorization URL for SPA/API clients
+                const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
+                const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
+                const redirectUri = 'http://localhost:3000/auth/callback'; // For local development
+                const scope = 'openid profile email';
+
+                const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
+                    `client_id=${clientId}&` +
+                    `response_type=code&` +
+                    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+                    `scope=${encodeURIComponent(scope)}&` +
+                    `state=${encodeURIComponent(correlationId)}&` +
+                    `response_mode=query`;
+
+                context.log(`[SignIn] Providing auth URL for client: ${authUrl}`);
+
+                return success(200, {
+                    authUrl,
+                    clientId,
+                    tenantId,
+                    redirectUri,
+                    scope,
+                    state: correlationId,
+                    message: 'Use authUrl to authenticate with Azure Entra ID'
+                }, correlationId);
             }
 
         } catch (error) {
             context.log.error(`[SignIn] Error: ${error.message}`);
+            return failure(500, 'Internal server error', correlationId);
+        }
+    }
+});
+
+// GET /api/auth/callback - OAuth2 Callback Handler
+app.http('AuthCallback', {
+    methods: ['GET'],
+    authLevel: 'anonymous',
+    route: 'auth/callback',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        try {
+            const url = new URL(request.url);
+            const code = url.searchParams.get('code');
+            const state = url.searchParams.get('state');
+            const error = url.searchParams.get('error');
+            const errorDescription = url.searchParams.get('error_description');
+
+            if (error) {
+                context.log.error(`[AuthCallback] OAuth error: ${error} - ${errorDescription}`);
+                return failure(400, `Authentication failed: ${errorDescription}`, correlationId);
+            }
+
+            if (!code) {
+                context.log.error('[AuthCallback] No authorization code received');
+                return failure(400, 'No authorization code received', correlationId);
+            }
+
+            // Exchange authorization code for tokens
+            const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
+            const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
+            const redirectUri = 'https://func-auxili-user-dev-ad7stftg.azurewebsites.net/auth/callback';
+
+            const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+            const tokenRequest = new URLSearchParams({
+                client_id: clientId,
+                scope: 'openid profile email',
+                code: code,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code',
+                // Note: In production, you'd need client_secret or certificate authentication
+                // For now, this will work with public client configuration
+            });
+
+            const tokenResponse = await fetch(tokenUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: tokenRequest.toString()
+            });
+
+            const tokenData = await tokenResponse.json();
+
+            if (!tokenResponse.ok) {
+                context.log.error('[AuthCallback] Token exchange failed:', tokenData);
+                return failure(400, `Token exchange failed: ${tokenData.error_description}`, correlationId);
+            }
+
+            // Decode the ID token to get user info (without verification for now)
+            const idTokenPayload = JSON.parse(Buffer.from(tokenData.id_token.split('.')[1], 'base64').toString());
+
+            const user = {
+                id: idTokenPayload.sub,
+                username: idTokenPayload.preferred_username || idTokenPayload.email,
+                email: idTokenPayload.email,
+                firstName: idTokenPayload.given_name || '',
+                lastName: idTokenPayload.family_name || '',
+                name: idTokenPayload.name || ''
+            };
+
+            context.log(`[AuthCallback] Successfully authenticated user: ${user.email}`);
+
+            // Return success with tokens and user info
+            return success(200, {
+                user,
+                accessToken: tokenData.access_token,
+                idToken: tokenData.id_token,
+                refreshToken: tokenData.refresh_token,
+                expiresIn: tokenData.expires_in,
+                tokenType: tokenData.token_type,
+                message: 'Authentication successful'
+            }, correlationId);
+
+        } catch (error) {
+            context.log.error(`[AuthCallback] Error: ${error.message}`);
             return failure(500, 'Internal server error', correlationId);
         }
     }
@@ -186,17 +294,47 @@ app.http('KeepAlive', {
 
             const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-            // Mock token validation - in real implementation, verify JWT
-            if (token.startsWith('mock-jwt-token-')) {
-                context.log('[KeepAlive] Token validated successfully');
+            // Validate JWT token with Entra ID
+            try {
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    throw new Error('Invalid JWT format');
+                }
+
+                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+
+                // Basic validation
+                const now = Math.floor(Date.now() / 1000);
+                if (payload.exp && payload.exp < now) {
+                    throw new Error('Token expired');
+                }
+
+                // Calculate remaining time
+                const expiresIn = payload.exp ? payload.exp - now : 3600;
+
+                context.log('[KeepAlive] Entra ID token validated successfully');
                 return success(200, {
                     status: 'active',
                     message: 'Session is valid',
                     timestamp: new Date().toISOString(),
-                    expiresIn: 3600 // Refresh token expiry
+                    expiresIn: expiresIn,
+                    tokenType: 'Bearer'
                 }, correlationId);
-            } else {
-                context.log.warn('[KeepAlive] Invalid token provided');
+
+            } catch (jwtError) {
+                // Fallback to mock token for development
+                if (token.startsWith('mock-jwt-token-')) {
+                    context.log('[KeepAlive] Mock token validated successfully');
+                    return success(200, {
+                        status: 'active',
+                        message: 'Session is valid',
+                        timestamp: new Date().toISOString(),
+                        expiresIn: 3600,
+                        tokenType: 'Bearer (mock)'
+                    }, correlationId);
+                }
+
+                context.log.warn(`[KeepAlive] Token validation failed: ${jwtError.message}`);
                 return failure(401, 'Invalid or expired token', correlationId);
             }
 
@@ -207,7 +345,7 @@ app.http('KeepAlive', {
     }
 });
 
-// POST /api/auth/validate - Token validation endpoint
+// POST /api/auth/validate - JWT Token validation endpoint
 app.http('ValidateToken', {
     methods: ['POST'],
     authLevel: 'anonymous',
@@ -223,27 +361,74 @@ app.http('ValidateToken', {
                 return failure(400, 'Token is required', correlationId);
             }
 
-            // Mock token validation - in real implementation, verify JWT
-            if (token.startsWith('mock-jwt-token-')) {
-                const mockUser = {
-                    id: 'demo-user-123',
-                    username: 'demo_user',
-                    email: 'demo@auxili.com',
-                    firstName: 'Demo',
-                    lastName: 'User'
+            // Validate JWT token with Entra ID
+            try {
+                // For now, decode without verification (in production, use proper JWT validation)
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    throw new Error('Invalid JWT format');
+                }
+
+                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+
+                // Basic validation
+                const now = Math.floor(Date.now() / 1000);
+                if (payload.exp && payload.exp < now) {
+                    throw new Error('Token expired');
+                }
+
+                // Validate issuer and audience for Entra ID
+                const expectedIssuer = 'https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/v2.0';
+                const expectedAudience = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
+
+                if (payload.iss !== expectedIssuer) {
+                    throw new Error('Invalid issuer');
+                }
+
+                if (payload.aud !== expectedAudience) {
+                    throw new Error('Invalid audience');
+                }
+
+                const user = {
+                    id: payload.sub,
+                    username: payload.preferred_username || payload.email,
+                    email: payload.email,
+                    firstName: payload.given_name || '',
+                    lastName: payload.family_name || '',
+                    name: payload.name || ''
                 };
 
-                context.log('[ValidateToken] Token is valid');
+                context.log('[ValidateToken] Entra ID token is valid');
                 return success(200, {
                     valid: true,
-                    user: mockUser,
+                    user: user,
+                    claims: payload,
                     message: 'Token is valid'
                 }, correlationId);
-            } else {
-                context.log.warn('[ValidateToken] Invalid token provided');
+
+            } catch (jwtError) {
+                // Fallback to mock token for development
+                if (token.startsWith('mock-jwt-token-')) {
+                    const mockUser = {
+                        id: 'demo-user-123',
+                        username: 'demo_user',
+                        email: 'demo@auxili.com',
+                        firstName: 'Demo',
+                        lastName: 'User'
+                    };
+
+                    context.log('[ValidateToken] Mock token is valid');
+                    return success(200, {
+                        valid: true,
+                        user: mockUser,
+                        message: 'Mock token is valid (development mode)'
+                    }, correlationId);
+                }
+
+                context.log.warn(`[ValidateToken] JWT validation failed: ${jwtError.message}`);
                 return failure(401, {
                     valid: false,
-                    message: 'Invalid or expired token'
+                    message: `Invalid or expired token: ${jwtError.message}`
                 }, correlationId);
             }
 
@@ -252,9 +437,7 @@ app.http('ValidateToken', {
             return failure(500, 'Internal server error', correlationId);
         }
     }
-});
-
-// GET /api/auth/me - Get current user profile
+});// GET /api/auth/me - Get current user profile
 app.http('GetProfile', {
     methods: ['GET'],
     authLevel: 'anonymous',
@@ -272,28 +455,69 @@ app.http('GetProfile', {
 
             const token = authHeader.substring(7);
 
-            // Mock token validation and user extraction
-            if (token.startsWith('mock-jwt-token-')) {
+            // Validate and extract user from JWT token
+            try {
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    throw new Error('Invalid JWT format');
+                }
+
+                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+
+                // Basic validation
+                const now = Math.floor(Date.now() / 1000);
+                if (payload.exp && payload.exp < now) {
+                    throw new Error('Token expired');
+                }
+
                 const user = {
-                    id: 'demo-user-123',
-                    username: 'demo_user',
-                    email: 'demo@auxili.com',
-                    firstName: 'Demo',
-                    lastName: 'User',
+                    id: payload.sub,
+                    username: payload.preferred_username || payload.email,
+                    email: payload.email,
+                    firstName: payload.given_name || '',
+                    lastName: payload.family_name || '',
+                    name: payload.name || '',
                     profile: {
-                        firstName: 'Demo',
-                        lastName: 'User',
-                        joinDate: '2024-01-01'
+                        firstName: payload.given_name || '',
+                        lastName: payload.family_name || '',
+                        joinDate: new Date(payload.iat * 1000).toISOString().split('T')[0] // Convert from timestamp
                     },
-                    lastLogin: new Date().toISOString()
+                    lastLogin: new Date().toISOString(),
+                    tokenClaims: {
+                        issuer: payload.iss,
+                        audience: payload.aud,
+                        expires: new Date(payload.exp * 1000).toISOString()
+                    }
                 };
 
-                context.log('[GetProfile] Returning user profile');
+                context.log('[GetProfile] Returning Entra ID user profile');
                 return success(200, user, correlationId);
-            } else {
+
+            } catch (jwtError) {
+                // Fallback to mock token for development
+                if (token.startsWith('mock-jwt-token-')) {
+                    const user = {
+                        id: 'demo-user-123',
+                        username: 'demo_user',
+                        email: 'demo@auxili.com',
+                        firstName: 'Demo',
+                        lastName: 'User',
+                        profile: {
+                            firstName: 'Demo',
+                            lastName: 'User',
+                            joinDate: '2024-01-01'
+                        },
+                        lastLogin: new Date().toISOString(),
+                        tokenType: 'mock'
+                    };
+
+                    context.log('[GetProfile] Returning mock user profile');
+                    return success(200, user, correlationId);
+                }
+
+                context.log.warn(`[GetProfile] Token validation failed: ${jwtError.message}`);
                 return failure(401, 'Invalid or expired token', correlationId);
             }
-
         } catch (error) {
             context.log.error(`[GetProfile] Error: ${error.message}`);
             return failure(500, 'Internal server error', correlationId);

@@ -16,6 +16,9 @@ param apimAdminEmail string = 'admin@auxili.com'
 @description('Existing Entra ID Application ID for authentication (leave empty for dev)')
 param entraAppId string = ''
 
+@description('Enable authentication (JWT validation in APIM)')
+param enableAuthentication bool = false
+
 // Note: Private endpoints and developer IP are controlled per-module via env config
 
 // Generate unique suffix for globally unique resources
@@ -221,7 +224,7 @@ module authPolicies 'modules/auth-policies.bicep' = {
     applicationId: entraApp.outputs.applicationId
     tenantId: entraApp.outputs.tenantId
     environment: environment
-    enableAuth: currentConfig.enableAuth
+    enableAuth: enableAuthentication
     issuerUrl: entraApp.outputs.issuerUrl
     jwksUri: entraApp.outputs.jwksUri
   }

@@ -316,56 +316,21 @@ resource getProfileOperation 'Microsoft.ApiManagement/service/apis/operations@20
   }
 }
 
-// Auth API Policies - we need function key injection for this API too
+// Auth API Policies - inject function key for all auth operations
 resource authApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
   parent: authApi
   properties: {
-    value: replace(publicApiPolicy, '  <inbound>\n    <base />', '  <inbound>\n    <base />\n    <set-backend-service base-url="https://${userFunctionAppHostName}/auth?code=${listkeys('${userFunctionApp.id}/host/default/', '2022-09-01').functionKeys.default}" />')
+    value: replace(publicApiPolicy, '  <inbound>\n    <base />', '''  <inbound>
+    <base />
+    <!-- Function App Authentication -->
+    <set-header name="x-functions-key" exists-action="override">
+      <value>${listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
+    </set-header>''')
   }
 }
 
-// Auth endpoint-specific policies
-resource signInPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
-  name: 'policy'
-  parent: signInOperation
-  properties: {
-    value: publicApiPolicy
-  }
-}
 
-resource signUpPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
-  name: 'policy'
-  parent: signUpOperation
-  properties: {
-    value: publicApiPolicy
-  }
-}
-
-// Keep alive and validate token operations can be public or protected - making them public for flexibility
-resource keepAlivePolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
-  name: 'policy'
-  parent: keepAliveOperation
-  properties: {
-    value: publicApiPolicy
-  }
-}
-
-resource validateTokenPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
-  name: 'policy'
-  parent: validateTokenOperation
-  properties: {
-    value: publicApiPolicy
-  }
-}
-
-resource getProfilePolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
-  name: 'policy'
-  parent: getProfileOperation
-  properties: {
-    value: publicApiPolicy
-  }
-}
 
 // Health endpoints should be public - create specific policy for health operations
 resource productHealthPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
