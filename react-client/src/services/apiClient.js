@@ -39,6 +39,34 @@ async function handleResponse(response) {
         throw error
     }
 
+    if (isJson && data && typeof data === 'object') {
+        const { data: payload, correlationId, ...rest } = data
+
+        if (payload !== undefined) {
+            if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                return {
+                    ...payload,
+                    correlationId: correlationId ?? null,
+                    ...rest
+                }
+            }
+
+            if (Array.isArray(payload)) {
+                return {
+                    items: payload,
+                    correlationId: correlationId ?? null,
+                    ...rest
+                }
+            }
+
+            return payload
+        }
+
+        return {
+            ...data
+        }
+    }
+
     return data
 }
 
