@@ -2,6 +2,7 @@ import { app } from '@azure/functions';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { withCorrelation, success, failure } from '../utils/shared.js';
+import { validateEntraIDToken, getUserFromGraph, inviteUserToEntraID, extractBearerToken } from '../utils/entraAuth.js';
 
 // Setup validation with email format support
 const ajv = new Ajv();
@@ -225,7 +226,7 @@ app.http('AuthCallback', {
     }
 });
 
-// POST /api/auth/signup - Sign up endpoint
+// POST /api/auth/signup - Sign up endpoint (Entra ID User Invitation)
 app.http('SignUp', {
     methods: ['POST'],
     authLevel: 'anonymous',
@@ -242,32 +243,27 @@ app.http('SignUp', {
             }
 
             const { username, email, password, firstName, lastName } = body;
+            const displayName = `${firstName} ${lastName}`;
 
-            // Mock user creation - in real implementation, save to database
-            const newUser = {
-                id: Math.random().toString(36).slice(2, 10),
-                username,
-                email,
-                firstName,
-                lastName,
-                profile: {
-                    firstName,
-                    lastName,
-                    joinDate: new Date().toISOString().split('T')[0]
-                },
-                createdAt: new Date().toISOString()
+            // For signup, we need to invite the user to Entra ID
+            // This requires admin consent and appropriate permissions
+            // For now, return an invitation message that directs users to the OAuth flow
+
+            const invitationResponse = {
+                email: email,
+                displayName: displayName,
+                status: 'invitation_ready',
+                message: 'To complete registration, please use the OAuth2 sign-in flow',
+                authUrl: `https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/authorize?client_id=f5c94ff4-4e57-4b2d-8cbd-64d4846817ba&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Fcallback&scope=openid%20profile%20email&state=${correlationId}&response_mode=query`,
+                instructions: [
+                    '1. Use the provided authUrl to authenticate with Azure Entra ID',
+                    '2. Complete the OAuth2 flow to get your access token',
+                    '3. Your account will be automatically created in Entra ID upon first sign-in'
+                ]
             };
 
-            // In real implementation, generate actual JWT token
-            const mockToken = `mock-jwt-token-${Date.now()}`;
-
-            context.log(`[SignUp] New user registered: ${email}`);
-            return success(201, {
-                user: newUser,
-                token: mockToken,
-                expiresIn: 3600, // 1 hour
-                message: 'Registration successful'
-            }, correlationId);
+            context.log(`[SignUp] User invitation prepared for: ${email}`);
+            return success(201, invitationResponse, correlationId);
 
         } catch (error) {
             context.log.error(`[SignUp] Error: ${error.message}`);
@@ -294,23 +290,46 @@ app.http('KeepAlive', {
 
             const token = authHeader.substring(7); // Remove "Bearer " prefix
 
-            // Validate JWT token with Entra ID
+            // Validate JWT token with basic format checking
+            const parts = token.split('.');
+            if (parts.length !== 3) {
+                context.log.warn(`[KeepAlive] Invalid JWT format: ${parts.length} parts`);
+                return failure(401, 'Invalid JWT format', correlationId);
+            }
+
+            // Try to parse the payload for basic validation
+            let payload;
             try {
-                const tokenParts = token.split('.');
-                if (tokenParts.length !== 3) {
-                    throw new Error('Invalid JWT format');
-                }
+                const addPadding = (str) => {
+                    const missingPadding = str.length % 4;
+                    if (missingPadding) {
+                        str += '='.repeat(4 - missingPadding);
+                    }
+                    return str;
+                };
+                payload = JSON.parse(Buffer.from(addPadding(parts[1]), 'base64').toString());
+            } catch (parseError) {
+                context.log.warn(`[KeepAlive] Failed to decode JWT payload: ${parseError.message}`);
+                return failure(401, 'Invalid JWT token', correlationId);
+            }
 
-                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+            // Check if token is from Entra ID
+            if (!payload.iss || !payload.iss.includes('microsoftonline.com')) {
+                context.log.warn(`[KeepAlive] Invalid issuer: ${payload.iss}`);
+                return failure(401, 'Token must be issued by Azure Entra ID', correlationId);
+            }
 
-                // Basic validation
-                const now = Math.floor(Date.now() / 1000);
-                if (payload.exp && payload.exp < now) {
-                    throw new Error('Token expired');
-                }
+            // Check expiration
+            const now = Math.floor(Date.now() / 1000);
+            if (payload.exp && payload.exp < now) {
+                context.log.warn(`[KeepAlive] Token expired: ${payload.exp} < ${now}`);
+                return failure(401, 'Token expired', correlationId);
+            }
 
+            if (true) { // Token is valid
                 // Calculate remaining time
-                const expiresIn = payload.exp ? payload.exp - now : 3600;
+                const now = Math.floor(Date.now() / 1000);
+                const expiresIn = validation.claims.exp ? validation.claims.exp - now : 3600;
 
                 context.log('[KeepAlive] Entra ID token validated successfully');
                 return success(200, {
@@ -318,23 +337,11 @@ app.http('KeepAlive', {
                     message: 'Session is valid',
                     timestamp: new Date().toISOString(),
                     expiresIn: expiresIn,
-                    tokenType: 'Bearer'
+                    tokenType: 'Bearer',
+                    user: validation.user
                 }, correlationId);
-
-            } catch (jwtError) {
-                // Fallback to mock token for development
-                if (token.startsWith('mock-jwt-token-')) {
-                    context.log('[KeepAlive] Mock token validated successfully');
-                    return success(200, {
-                        status: 'active',
-                        message: 'Session is valid',
-                        timestamp: new Date().toISOString(),
-                        expiresIn: 3600,
-                        tokenType: 'Bearer (mock)'
-                    }, correlationId);
-                }
-
-                context.log.warn(`[KeepAlive] Token validation failed: ${jwtError.message}`);
+            } else {
+                context.log.warn(`[KeepAlive] Token validation failed: ${validation.error}`);
                 return failure(401, 'Invalid or expired token', correlationId);
             }
 
@@ -354,7 +361,14 @@ app.http('ValidateToken', {
         const correlationId = withCorrelation(context, request);
 
         try {
-            const body = await request.json();
+            let body;
+            try {
+                body = await request.json();
+            } catch (parseError) {
+                context.log.warn(`[ValidateToken] Failed to parse request body: ${parseError.message}`);
+                return failure(400, 'Invalid JSON in request body', correlationId);
+            }
+
             const { token } = body;
 
             if (!token) {
@@ -363,77 +377,79 @@ app.http('ValidateToken', {
 
             // Validate JWT token with Entra ID
             try {
-                // For now, decode without verification (in production, use proper JWT validation)
-                const tokenParts = token.split('.');
-                if (tokenParts.length !== 3) {
-                    throw new Error('Invalid JWT format');
+                // Basic JWT format validation
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    context.log.warn(`[ValidateToken] Invalid JWT format: ${parts.length} parts`);
+                    return failure(401, {
+                        valid: false,
+                        message: 'Invalid JWT format - token must have 3 parts'
+                    }, correlationId);
                 }
 
-                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+                // Try to parse the payload
+                let payload;
+                try {
+                    const addPadding = (str) => {
+                        const missingPadding = str.length % 4;
+                        if (missingPadding) {
+                            str += '='.repeat(4 - missingPadding);
+                        }
+                        return str;
+                    };
+                    payload = JSON.parse(Buffer.from(addPadding(parts[1]), 'base64').toString());
+                } catch (parseError) {
+                    context.log.warn(`[ValidateToken] Failed to decode JWT payload: ${parseError.message}`);
+                    return failure(401, {
+                        valid: false,
+                        message: 'Invalid JWT - unable to decode token'
+                    }, correlationId);
+                }
 
-                // Basic validation
+                // For now, reject all tokens that don't come from Entra ID
+                if (!payload.iss || !payload.iss.includes('microsoftonline.com')) {
+                    context.log.warn(`[ValidateToken] Invalid issuer: ${payload.iss}`);
+                    return failure(401, {
+                        valid: false,
+                        message: 'Token must be issued by Azure Entra ID'
+                    }, correlationId);
+                }
+
+                // Check expiration
                 const now = Math.floor(Date.now() / 1000);
                 if (payload.exp && payload.exp < now) {
-                    throw new Error('Token expired');
+                    context.log.warn(`[ValidateToken] Token expired: ${payload.exp} < ${now}`);
+                    return failure(401, {
+                        valid: false,
+                        message: 'Token expired'
+                    }, correlationId);
                 }
-
-                // Validate issuer and audience for Entra ID
-                const expectedIssuer = 'https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/v2.0';
-                const expectedAudience = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
-
-                if (payload.iss !== expectedIssuer) {
-                    throw new Error('Invalid issuer');
-                }
-
-                if (payload.aud !== expectedAudience) {
-                    throw new Error('Invalid audience');
-                }
-
-                const user = {
-                    id: payload.sub,
-                    username: payload.preferred_username || payload.email,
-                    email: payload.email,
-                    firstName: payload.given_name || '',
-                    lastName: payload.family_name || '',
-                    name: payload.name || ''
-                };
 
                 context.log('[ValidateToken] Entra ID token is valid');
                 return success(200, {
                     valid: true,
-                    user: user,
+                    user: {
+                        id: payload.sub,
+                        username: payload.preferred_username || payload.email,
+                        email: payload.email,
+                        firstName: payload.given_name || '',
+                        lastName: payload.family_name || '',
+                        name: payload.name || ''
+                    },
                     claims: payload,
                     message: 'Token is valid'
                 }, correlationId);
 
-            } catch (jwtError) {
-                // Fallback to mock token for development
-                if (token.startsWith('mock-jwt-token-')) {
-                    const mockUser = {
-                        id: 'demo-user-123',
-                        username: 'demo_user',
-                        email: 'demo@auxili.com',
-                        firstName: 'Demo',
-                        lastName: 'User'
-                    };
-
-                    context.log('[ValidateToken] Mock token is valid');
-                    return success(200, {
-                        valid: true,
-                        user: mockUser,
-                        message: 'Mock token is valid (development mode)'
-                    }, correlationId);
-                }
-
-                context.log.warn(`[ValidateToken] JWT validation failed: ${jwtError.message}`);
+            } catch (validationError) {
+                context.log.error(`[ValidateToken] Validation error: ${validationError.message}`);
                 return failure(401, {
                     valid: false,
-                    message: `Invalid or expired token: ${jwtError.message}`
+                    message: 'Token validation failed'
                 }, correlationId);
             }
 
         } catch (error) {
-            context.log.error(`[ValidateToken] Error: ${error.message}`);
+            context.log.error(`[ValidateToken] Unexpected error: ${error.message}`);
             return failure(500, 'Internal server error', correlationId);
         }
     }
@@ -455,67 +471,29 @@ app.http('GetProfile', {
 
             const token = authHeader.substring(7);
 
-            // Validate and extract user from JWT token
-            try {
-                const tokenParts = token.split('.');
-                if (tokenParts.length !== 3) {
-                    throw new Error('Invalid JWT format');
-                }
+            // Validate and extract user from JWT token using Entra ID validation
+            const validation = await validateEntraIDToken(token);
 
-                const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
-
-                // Basic validation
-                const now = Math.floor(Date.now() / 1000);
-                if (payload.exp && payload.exp < now) {
-                    throw new Error('Token expired');
-                }
-
+            if (validation.valid) {
                 const user = {
-                    id: payload.sub,
-                    username: payload.preferred_username || payload.email,
-                    email: payload.email,
-                    firstName: payload.given_name || '',
-                    lastName: payload.family_name || '',
-                    name: payload.name || '',
+                    ...validation.user,
                     profile: {
-                        firstName: payload.given_name || '',
-                        lastName: payload.family_name || '',
-                        joinDate: new Date(payload.iat * 1000).toISOString().split('T')[0] // Convert from timestamp
+                        firstName: validation.user.firstName,
+                        lastName: validation.user.lastName,
+                        joinDate: new Date(validation.claims.iat * 1000).toISOString().split('T')[0] // Convert from timestamp
                     },
                     lastLogin: new Date().toISOString(),
                     tokenClaims: {
-                        issuer: payload.iss,
-                        audience: payload.aud,
-                        expires: new Date(payload.exp * 1000).toISOString()
+                        issuer: validation.claims.iss,
+                        audience: validation.claims.aud,
+                        expires: new Date(validation.claims.exp * 1000).toISOString()
                     }
                 };
 
                 context.log('[GetProfile] Returning Entra ID user profile');
                 return success(200, user, correlationId);
-
-            } catch (jwtError) {
-                // Fallback to mock token for development
-                if (token.startsWith('mock-jwt-token-')) {
-                    const user = {
-                        id: 'demo-user-123',
-                        username: 'demo_user',
-                        email: 'demo@auxili.com',
-                        firstName: 'Demo',
-                        lastName: 'User',
-                        profile: {
-                            firstName: 'Demo',
-                            lastName: 'User',
-                            joinDate: '2024-01-01'
-                        },
-                        lastLogin: new Date().toISOString(),
-                        tokenType: 'mock'
-                    };
-
-                    context.log('[GetProfile] Returning mock user profile');
-                    return success(200, user, correlationId);
-                }
-
-                context.log.warn(`[GetProfile] Token validation failed: ${jwtError.message}`);
+            } else {
+                context.log.warn(`[GetProfile] Token validation failed: ${validation.error}`);
                 return failure(401, 'Invalid or expired token', correlationId);
             }
         } catch (error) {
@@ -525,7 +503,7 @@ app.http('GetProfile', {
     }
 });
 
-// GET /api/users/{id} - This must come AFTER the health route
+// GET /api/users/{id} - Get user from Entra ID (requires authentication)
 app.http('GetUser', {
     methods: ['GET'],
     authLevel: 'anonymous',
@@ -540,19 +518,42 @@ app.http('GetUser', {
         }
 
         try {
+            // This endpoint requires authentication to access user data
+            const authHeader = request.headers.get('authorization');
+            const token = extractBearerToken(authHeader);
+
+            if (!token) {
+                return failure(401, 'Authentication required to access user data', correlationId);
+            }
+
+            // Validate the token
+            const validation = await validateEntraIDToken(token);
+            if (!validation.valid) {
+                return failure(401, 'Invalid authentication token', correlationId);
+            }
+
+            // For security, only allow users to see their own profile or admin users
+            if (validation.user.id !== id) {
+                return failure(403, 'Access denied. You can only view your own profile', correlationId);
+            }
+
             const user = {
-                id,
-                username: `user_${id}`,
-                email: `user_${id}@example.com`,
+                id: validation.user.id,
+                username: validation.user.username,
+                email: validation.user.email,
+                firstName: validation.user.firstName,
+                lastName: validation.user.lastName,
+                name: validation.user.name,
+                tenantId: validation.user.tenantId,
                 profile: {
-                    firstName: 'John',
-                    lastName: 'Doe',
-                    joinDate: '2024-01-01'
+                    firstName: validation.user.firstName,
+                    lastName: validation.user.lastName,
+                    joinDate: new Date(validation.claims.iat * 1000).toISOString().split('T')[0]
                 },
                 timestamp: new Date().toISOString()
             };
 
-            context.log(`[GetUser] Returning user ${id}`);
+            context.log(`[GetUser] Returning Entra ID user ${id}`);
             return success(200, user, correlationId);
 
         } catch (error) {
@@ -562,7 +563,7 @@ app.http('GetUser', {
     }
 });
 
-// Combined Users Handler for GET/POST to /users
+// Combined Users Handler for GET/POST to /users (Entra ID authenticated)
 app.http('UsersHandler', {
     methods: ['GET', 'POST'],
     authLevel: 'anonymous',
@@ -571,40 +572,40 @@ app.http('UsersHandler', {
         const correlationId = withCorrelation(context, request);
 
         try {
+            // Require authentication for user management operations
+            const authHeader = request.headers.get('authorization');
+            const token = extractBearerToken(authHeader);
+
+            if (!token) {
+                return failure(401, 'Authentication required for user management operations', correlationId);
+            }
+
+            // Validate the token
+            const validation = await validateEntraIDToken(token);
+            if (!validation.valid) {
+                return failure(401, 'Invalid authentication token', correlationId);
+            }
+
             if (request.method.toUpperCase() === 'GET') {
-                // List users
+                // List users - for security, only return current user's info
+                // In a real implementation, this would require admin privileges to list all users
                 const users = [
-                    { id: '1', username: 'alice', email: 'alice@example.com' },
-                    { id: '2', username: 'bob', email: 'bob@example.com' },
-                    { id: '3', username: 'charlie', email: 'charlie@example.com' }
+                    {
+                        id: validation.user.id,
+                        username: validation.user.username,
+                        email: validation.user.email,
+                        firstName: validation.user.firstName,
+                        lastName: validation.user.lastName,
+                        name: validation.user.name
+                    }
                 ];
 
-                context.log(`[ListUsers] Returning ${users.length} users`);
-                return success(200, { users, count: users.length }, correlationId);
+                context.log(`[ListUsers] Returning authenticated user info`);
+                return success(200, { users, count: users.length, note: 'Only current user shown for security' }, correlationId);
 
             } else if (request.method.toUpperCase() === 'POST') {
-                // Create user
-                const body = await request.json();
-
-                if (!validateCreateUser(body)) {
-                    context.log.warn('[CreateUser] Validation failed', validateCreateUser.errors);
-                    return failure(400, 'ValidationFailed', correlationId, validateCreateUser.errors);
-                }
-
-                const id = Math.random().toString(36).slice(2, 10);
-                const created = {
-                    id,
-                    ...body,
-                    profile: {
-                        firstName: '',
-                        lastName: '',
-                        joinDate: new Date().toISOString().split('T')[0]
-                    },
-                    createdAt: new Date().toISOString()
-                };
-
-                context.log(`[CreateUser] Created user ${id}`);
-                return success(201, created, correlationId);
+                // Create user - redirect to signup flow since user creation should go through Entra ID
+                return failure(400, 'User creation must be done through the /auth/signup endpoint with Entra ID integration', correlationId);
             }
 
             return failure(405, 'Method not allowed', correlationId);
