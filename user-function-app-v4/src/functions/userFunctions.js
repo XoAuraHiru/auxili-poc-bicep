@@ -2,7 +2,8 @@ import { app } from '@azure/functions';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { withCorrelation, success, failure } from '../utils/shared.js';
-import { validateEntraIDToken, getUserFromGraph, inviteUserToEntraID, extractBearerToken } from '../utils/entraAuth.js';
+import { PublicClientApplication } from '@azure/msal-node';
+import { validateEntraIDToken, getUserFromGraph, inviteUserToEntraID, extractBearerToken, TENANT_ID, CLIENT_ID, AUTHORITY, DEFAULT_AUTH_SCOPES } from '../utils/entraAuth.js';
 
 // Setup validation with email format support
 const ajv = new Ajv();
@@ -45,6 +46,19 @@ const signUpSchema = {
 };
 const validateSignUp = ajv.compile(signUpSchema);
 
+// Shared Entra ID/MSAL configuration
+const CLIENT_SECRET = process.env.ENTRA_CLIENT_SECRET || process.env.CLIENT_SECRET || null;
+const AUTH_SCOPES_STRING = (process.env.ENTRA_AUTH_SCOPES || DEFAULT_AUTH_SCOPES).split(/[\s,]+/).filter(Boolean).join(' ');
+const TOKEN_SCOPES_STRING = (process.env.ENTRA_TOKEN_SCOPES || `${AUTH_SCOPES_STRING} offline_access`).split(/[\s,]+/).filter(Boolean).join(' ');
+const ROPC_SCOPES = (process.env.ENTRA_ROPC_SCOPES || TOKEN_SCOPES_STRING).split(/[\s,]+/).filter(Boolean);
+
+const usernamePasswordClient = new PublicClientApplication({
+    auth: {
+        clientId: process.env.ENTRA_ROPC_CLIENT_ID || CLIENT_ID,
+        authority: process.env.ENTRA_ROPC_AUTHORITY || AUTHORITY
+    }
+});
+
 // IMPORTANT: Health check MUST come before the {id} route
 app.http('UserHealth', {
     methods: ['GET'],
@@ -82,15 +96,13 @@ app.http('SignIn', {
 
             if (request.method.toUpperCase() === 'GET') {
                 // Generate OAuth2 authorization URL for Entra ID
-                const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
-                const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
                 const redirectUri = encodeURIComponent(serverRedirectUri);
-                const scope = encodeURIComponent('openid profile email');
+                const scope = encodeURIComponent(AUTH_SCOPES_STRING);
                 const state = encodeURIComponent(correlationId);
                 const responseType = 'code';
 
-                const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
-                    `client_id=${clientId}&` +
+                const authUrl = `${AUTHORITY}/oauth2/v2.0/authorize?` +
+                    `client_id=${CLIENT_ID}&` +
                     `response_type=${responseType}&` +
                     `redirect_uri=${redirectUri}&` +
                     `scope=${scope}&` +
@@ -108,13 +120,11 @@ app.http('SignIn', {
                 };
             } else {
                 // POST method - return authorization URL for SPA/API clients
-                const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
-                const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
                 const redirectUri = clientRedirectUri; // For local development / configurable
-                const scope = 'openid profile email';
+                const scope = AUTH_SCOPES_STRING;
 
-                const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
-                    `client_id=${clientId}&` +
+                const authUrl = `${AUTHORITY}/oauth2/v2.0/authorize?` +
+                    `client_id=${CLIENT_ID}&` +
                     `response_type=code&` +
                     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
                     `scope=${encodeURIComponent(scope)}&` +
@@ -125,8 +135,8 @@ app.http('SignIn', {
 
                 return success(200, {
                     authUrl,
-                    clientId,
-                    tenantId,
+                    clientId: CLIENT_ID,
+                    tenantId: TENANT_ID,
                     redirectUri,
                     scope,
                     state: correlationId,
@@ -137,6 +147,130 @@ app.http('SignIn', {
         } catch (error) {
             context.log.error(`[SignIn] Error: ${error.message}`);
             return failure(500, 'Internal server error', correlationId);
+        }
+    }
+});
+
+// POST /api/auth/password - Resource Owner Password Credentials (ROPC) login
+app.http('PasswordSignIn', {
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    route: 'auth/password',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        try {
+            let body;
+            try {
+                body = await request.json();
+            } catch (parseError) {
+                context.log.warn(`[PasswordSignIn] Failed to parse request body: ${parseError.message}`);
+                return failure(400, 'Invalid JSON payload', correlationId);
+            }
+
+            if (!validateSignIn(body)) {
+                context.log.warn('[PasswordSignIn] Payload validation failed', validateSignIn.errors);
+                return failure(400, 'Invalid credentials payload', correlationId, validateSignIn.errors);
+            }
+
+            const { email, password } = body;
+
+            if (!ROPC_SCOPES.length) {
+                context.log.error('[PasswordSignIn] No scopes configured for ROPC flow');
+                return failure(500, 'Authentication misconfigured. Contact administrator.', correlationId);
+            }
+
+            const tokenResponse = await usernamePasswordClient.acquireTokenByUsernamePassword({
+                scopes: ROPC_SCOPES,
+                username: email,
+                password
+            });
+
+            if (!tokenResponse || !tokenResponse.accessToken) {
+                context.log.error('[PasswordSignIn] MSAL returned an empty response');
+                return failure(502, 'Authentication provider returned no tokens', correlationId);
+            }
+
+            const claims = tokenResponse.idTokenClaims || {};
+            const expiresInSeconds = tokenResponse.expiresOn
+                ? Math.max(0, Math.round((tokenResponse.expiresOn.getTime() - Date.now()) / 1000))
+                : null;
+
+            const user = {
+                id: claims.sub || tokenResponse.account?.homeAccountId || null,
+                username: claims.preferred_username || claims.email || email,
+                email: claims.email || email,
+                firstName: claims.given_name || '',
+                lastName: claims.family_name || '',
+                name: claims.name || claims.preferred_username || email,
+                tenantId: claims.tid || tokenResponse.account?.tenantId || TENANT_ID
+            };
+
+            context.log(`[PasswordSignIn] User authenticated via ROPC: ${user.email}`);
+
+            return success(200, {
+                message: 'Authentication successful',
+                user,
+                accessToken: tokenResponse.accessToken,
+                idToken: tokenResponse.idToken || null,
+                refreshToken: tokenResponse.refreshToken || null,
+                tokenType: tokenResponse.tokenType || 'Bearer',
+                scope: Array.isArray(tokenResponse.scopes) && tokenResponse.scopes.length
+                    ? tokenResponse.scopes.join(' ')
+                    : ROPC_SCOPES.join(' '),
+                expiresOn: tokenResponse.expiresOn ? tokenResponse.expiresOn.toISOString() : null,
+                expiresIn: expiresInSeconds
+            }, correlationId);
+
+        } catch (error) {
+            const errorCode = (error?.errorCode || error?.name || 'unknown_error').toString();
+            const subError = (error?.subError || error?.suberror || '').toString();
+            const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : undefined;
+            const msalCorrelationId = error?.correlationId || error?.correlation_id || null;
+
+            const safeDetails = {
+                correlationId,
+                errorCode,
+                subError,
+                statusCode,
+                message: error?.message || error?.errorMessage || 'Unknown MSAL error',
+                msalCorrelationId
+            };
+
+            context.log.error('[PasswordSignIn] Authentication failed', safeDetails);
+
+            const normalizedCode = errorCode.toLowerCase();
+            const normalizedSubError = subError.toLowerCase();
+
+            let status = 500;
+            let message = 'Authentication failed. Verify the credentials and that the account allows password-based sign-in.';
+
+            if (normalizedCode === 'invalid_grant' || statusCode === 400) {
+                status = 401;
+                message = 'Invalid username or password, or additional authentication is required.';
+                if (normalizedSubError === 'consent_required' || normalizedSubError === 'interaction_required') {
+                    message = 'Admin consent or interactive sign-in is required for this account. ROPC cannot continue.';
+                }
+                if (normalizedSubError === 'password_reset_required') {
+                    message = 'Password reset required before signing in.';
+                }
+            } else if (normalizedCode === 'user_password_expired') {
+                status = 403;
+                message = 'User password expired. Please reset the password and try again.';
+            } else if (normalizedCode === 'unauthorized_client' || normalizedSubError === 'unauthorized_client') {
+                status = 403;
+                message = 'Application is not authorized for ROPC. Enable the flow in Entra ID or use another sign-in method.';
+            } else if (normalizedCode === 'temporarily_unavailable' || normalizedCode === 'service_not_available') {
+                status = 503;
+                message = 'Authentication service temporarily unavailable. Please try again shortly.';
+            }
+
+            return failure(status, message, correlationId, {
+                code: errorCode,
+                subError,
+                statusCode,
+                msalCorrelationId
+            });
         }
     }
 });
@@ -181,20 +315,17 @@ app.http('AuthCallback', {
             }
 
             // Exchange authorization code for tokens
-            const clientId = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
-            const tenantId = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
-
-            const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+            const tokenUrl = `${AUTHORITY}/oauth2/v2.0/token`;
             const tokenRequest = new URLSearchParams({
-                client_id: clientId,
-                scope: 'openid profile email offline_access',
+                client_id: CLIENT_ID,
+                scope: TOKEN_SCOPES_STRING,
                 code: code,
                 redirect_uri: serverRedirectUri,
                 grant_type: 'authorization_code',
             });
 
-            if (process.env.CLIENT_SECRET) {
-                tokenRequest.append('client_secret', process.env.CLIENT_SECRET);
+            if (CLIENT_SECRET) {
+                tokenRequest.append('client_secret', CLIENT_SECRET);
             }
 
             const tokenResponse = await fetch(tokenUrl, {
@@ -313,7 +444,7 @@ app.http('SignUp', {
                 displayName: displayName,
                 status: 'invitation_ready',
                 message: 'To complete registration, please use the OAuth2 sign-in flow',
-                authUrl: `https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/authorize?client_id=f5c94ff4-4e57-4b2d-8cbd-64d4846817ba&response_type=code&redirect_uri=${encodeURIComponent(clientRedirectUri)}&scope=openid%20profile%20email&state=${correlationId}&response_mode=query`,
+                authUrl: `${AUTHORITY}/oauth2/v2.0/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(clientRedirectUri)}&scope=${encodeURIComponent(AUTH_SCOPES_STRING)}&state=${correlationId}&response_mode=query`,
                 instructions: [
                     '1. Use the provided authUrl to authenticate with Azure Entra ID',
                     '2. Complete the OAuth2 flow to get your access token',

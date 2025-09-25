@@ -5,6 +5,7 @@ This Vite-powered React application showcases how our microservices platform aut
 ### Features
 
 - Microsoft sign-in flow driven by the `/auth` function endpoints
+- Optional email/password login that posts to the new `/auth/password` endpoint (ROPC flow)
 - Secure token storage with automatic state validation during the OAuth callback
 - Context-driven auth state (`AuthProvider`) shared across the app
 - One-click calls to:
@@ -35,12 +36,13 @@ The dev server is pinned to **http://localhost:3000** so it matches the redirect
 
 ### Environment variables
 
-| Variable                     | Purpose                                                                                                                          |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE_URL`          | Base URL for your API Management gateway or direct Function App host. Example: `https://apim-auxili-dev-ad7stftg.azure-api.net`. |
-| `VITE_APIM_SUBSCRIPTION_KEY` | Optional subscription key automatically attached to every request (`Ocp-Apim-Subscription-Key`).                                 |
-| `VITE_ENTRA_TENANT_ID`       | (Optional) Display value on the login screen; the backend already knows about it.                                                |
-| `VITE_ENTRA_CLIENT_ID`       | (Optional) Display value on the login screen.                                                                                    |
+| Variable                      | Purpose                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`           | Base URL for your API Management gateway or direct Function App host. Example: `https://apim-auxili-dev-ad7stftg.azure-api.net`. |
+| `VITE_APIM_SUBSCRIPTION_KEY`  | Optional subscription key automatically attached to every request (`Ocp-Apim-Subscription-Key`).                                 |
+| `VITE_ENTRA_TENANT_ID`        | (Optional) Display value on the login screen; the backend already knows about it.                                                |
+| `VITE_ENTRA_CLIENT_ID`        | (Optional) Display value on the login screen.                                                                                    |
+| `VITE_ENABLE_PASSWORD_SIGNIN` | Toggle the email/password form. Set to `false` to hide it (defaults to `true`).                                                  |
 
 Create a `.env.local` (ignored by git) and populate the values that differ from the defaults.
 
@@ -55,9 +57,12 @@ npm run lint    # ESLint using the repo's shared config
 ### How it works
 
 1. **Login** – `POST /auth/signin` returns the Entra authorization URL. We stash the state in `sessionStorage` before redirecting the browser to Microsoft.
-2. **Callback** – `/auth/callback` is invoked from the SPA route to exchange the auth code for tokens. The results populate the auth context and localStorage.
-3. **Protected calls** – Buttons on the dashboard attach the Bearer token and (optionally) the APIM subscription key before calling Function App endpoints.
-4. **Keep alive / Validate** – Demonstrates the supporting auth endpoints to confirm the session is still valid.
+2. **Password option** – When corporate policy allows it, the login form can submit email + password to `/auth/password`, which uses MSAL’s Resource Owner Password Credentials (ROPC) flow to mint tokens on the server and store them in the auth context.
+3. **Callback** – `/auth/callback` is invoked from the SPA route to exchange the auth code for tokens. The results populate the auth context and localStorage.
+4. **Protected calls** – Buttons on the dashboard attach the Bearer token and (optionally) the APIM subscription key before calling Function App endpoints.
+5. **Keep alive / Validate** – Demonstrates the supporting auth endpoints to confirm the session is still valid.
+
+> ℹ️ **Security note:** ROPC is disabled by default for most Entra tenants and is not recommended for consumer accounts or MFA-enforced users. Enable it only for trusted, first-party scenarios after reviewing [Microsoft’s guidance](https://learn.microsoft.com/entra/identity-platform/v2-oauth-ropc). In all other cases, prefer the interactive OAuth redirect flow.
 
 You can customise the UI or plug additional APIs into the shared `apiClient` located at `src/services/apiClient.js`.
 

@@ -28,6 +28,22 @@ export async function requestAuthUrl() {
     return response
 }
 
+export async function passwordSignIn({ email, password }) {
+    if (!email || !password) {
+        throw new Error('Email and password are required')
+    }
+
+    const payload = {
+        email: String(email).trim(),
+        password: String(password)
+    }
+
+    return apiRequest('/auth/password', {
+        method: 'POST',
+        body: payload
+    })
+}
+
 export async function exchangeAuthCode({ code, state }) {
     if (!code) {
         throw new Error('Missing authorization code')

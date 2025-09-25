@@ -276,6 +276,17 @@ resource signInOperation 'Microsoft.ApiManagement/service/apis/operations@2023-0
   }
 }
 
+resource passwordSignInOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'password-signin'
+  parent: authApi
+  properties: {
+    displayName: 'Password Sign In'
+    description: 'Authenticate via Resource Owner Password Credentials (ROPC).'
+    method: 'POST'
+    urlTemplate: '/password'
+  }
+}
+
 resource signUpOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'signup'
   parent: authApi

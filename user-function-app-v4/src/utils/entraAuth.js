@@ -2,10 +2,13 @@ import https from 'https';
 import crypto from 'crypto';
 
 // Entra ID configuration
-const TENANT_ID = 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
-const CLIENT_ID = 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
-const ISSUER_URL = `https://login.microsoftonline.com/${TENANT_ID}/v2.0`;
-const JWKS_URI = `https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`;
+export const TENANT_ID = process.env.ENTRA_TENANT_ID || 'fd2638f1-94af-4c20-9ee9-f16f08e60344';
+export const CLIENT_ID = process.env.ENTRA_CLIENT_ID || 'f5c94ff4-4e57-4b2d-8cbd-64d4846817ba';
+export const AUTHORITY = process.env.ENTRA_AUTHORITY || `https://login.microsoftonline.com/${TENANT_ID}`;
+export const DEFAULT_AUTH_SCOPES = process.env.ENTRA_AUTH_SCOPES || 'openid profile email';
+
+const ISSUER_URL = `${AUTHORITY}/v2.0`;
+const JWKS_URI = `${AUTHORITY}/discovery/v2.0/keys`;
 
 /**
  * Fetch JWKS keys from Entra ID
