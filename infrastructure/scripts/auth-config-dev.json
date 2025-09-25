@@ -1,0 +1,8 @@
+﻿{
+    "authorizationEndpoint": "https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/authorize",
+    "tokenEndpoint": "https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/oauth2/v2.0/token",
+    "issuerUrl": "https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/v2.0",
+    "jwksUri": "https://login.microsoftonline.com/fd2638f1-94af-4c20-9ee9-f16f08e60344/discovery/v2.0/keys",
+    "applicationId": "f5c94ff4-4e57-4b2d-8cbd-64d4846817ba",
+    "tenantId": "fd2638f1-94af-4c20-9ee9-f16f08e60344"
+}

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auxili POC - Authentication Demo</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+      }
+      .section {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+      .success {
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+      }
+      .info {
+        background-color: #d1ecf1;
+        border-color: #bee5eb;
+      }
+      input,
+      button {
+        padding: 10px;
+        margin: 5px;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+      }
+      button {
+        background-color: #007bff;
+        color: white;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      .response {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 3px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Auxili POC - Authentication Demo</h1>
+    <p>
+      This demo tests the Azure Entra ID authentication system with API
+      Management.
+    </p>
+
+    <div class="section info">
+      <h2>Configuration</h2>
+      <p>
+        <strong>API Gateway URL:</strong>
+        https://apim-auxili-dev-ad7stftg.azure-api.net
+      </p>
+      <p>
+        <strong>Function App URL:</strong>
+        https://func-auxili-user-dev-ad7stftg.azurewebsites.net
+      </p>
+      <p><strong>Entra App ID:</strong> f5c94ff4-4e57-4b2d-8cbd-64d4846817ba</p>
+      <p><strong>Tenant ID:</strong> fd2638f1-94af-4c20-9ee9-f16f08e60344</p>
+    </div>
+
+    <div class="section">
+      <h2>1. Sign In</h2>
+      <p>Test credentials: demo@auxili.com / password123</p>
+      <input
+        type="email"
+        id="signInEmail"
+        placeholder="Email"
+        value="demo@auxili.com"
+      />
+      <input
+        type="password"
+        id="signInPassword"
+        placeholder="Password"
+        value="password123"
+      />
+      <button onclick="signIn()">Sign In</button>
+      <div id="signInResponse" class="response"></div>
+    </div>
+
+    <div class="section">
+      <h2>2. Sign Up</h2>
+      <input
+        type="text"
+        id="signUpUsername"
+        placeholder="Username"
+        value="testuser"
+      />
+      <input
+        type="email"
+        id="signUpEmail"
+        placeholder="Email"
+        value="test@example.com"
+      />
+      <input
+        type="password"
+        id="signUpPassword"
+        placeholder="Password"
+        value="password123"
+      />
+      <input
+        type="text"
+        id="signUpFirstName"
+        placeholder="First Name"
+        value="Test"
+      />
+      <input
+        type="text"
+        id="signUpLastName"
+        placeholder="Last Name"
+        value="User"
+      />
+      <button onclick="signUp()">Sign Up</button>
+      <div id="signUpResponse" class="response"></div>
+    </div>
+
+    <div class="section">
+      <h2>3. Token Validation</h2>
+      <input
+        type="text"
+        id="validateToken"
+        placeholder="Token (from sign in)"
+        style="width: 400px"
+      />
+      <button onclick="validateToken()">Validate Token</button>
+      <div id="validateResponse" class="response"></div>
+    </div>
+
+    <div class="section">
+      <h2>4. Keep Alive (with Bearer Token)</h2>
+      <input
+        type="text"
+        id="keepAliveToken"
+        placeholder="Token (from sign in)"
+        style="width: 400px"
+      />
+      <button onclick="keepAlive()">Keep Alive</button>
+      <div id="keepAliveResponse" class="response"></div>
+    </div>
+
+    <div class="section">
+      <h2>5. Get Profile (with Bearer Token)</h2>
+      <input
+        type="text"
+        id="profileToken"
+        placeholder="Token (from sign in)"
+        style="width: 400px"
+      />
+      <button onclick="getProfile()">Get Profile</button>
+      <div id="profileResponse" class="response"></div>
+    </div>
+
+    <div class="section">
+      <h2>6. Test Protected Endpoint (Users API)</h2>
+      <input
+        type="text"
+        id="protectedToken"
+        placeholder="Token (from sign in)"
+        style="width: 400px"
+      />
+      <button onclick="testProtectedEndpoint()">Test GET /users</button>
+      <div id="protectedResponse" class="response"></div>
+    </div>
+
+    <script>
+      const API_BASE =
+        "https://func-auxili-user-dev-ad7stftg.azurewebsites.net";
+      const APIM_BASE = "https://apim-auxili-dev-ad7stftg.azure-api.net";
+      const FUNCTION_KEY =
+        "I0FTZR5HklQYwfP9cDZ4ldH4pgIxASLCn1z2EOO_dbTfAzFuiH2gIg==";
+
+      async function makeRequest(
+        url,
+        method = "GET",
+        body = null,
+        headers = {}
+      ) {
+        try {
+          const options = {
+            method,
+            headers: {
+              "Content-Type": "application/json",
+              ...headers,
+            },
+          };
+
+          if (body) {
+            options.body = JSON.stringify(body);
+          }
+
+          const response = await fetch(url, options);
+          const result = await response.json();
+
+          return {
+            status: response.status,
+            success: response.ok,
+            data: result,
+          };
+        } catch (error) {
+          return {
+            status: 0,
+            success: false,
+            error: error.message,
+          };
+        }
+      }
+
+      async function signIn() {
+        const email = document.getElementById("signInEmail").value;
+        const password = document.getElementById("signInPassword").value;
+
+        const result = await makeRequest(
+          `${API_BASE}/auth/signin?code=${FUNCTION_KEY}`,
+          "POST",
+          { email, password }
+        );
+
+        document.getElementById("signInResponse").textContent = JSON.stringify(
+          result,
+          null,
+          2
+        );
+
+        if (result.success && result.data?.data?.token) {
+          // Auto-fill token in other fields
+          const token = result.data.data.token;
+          document.getElementById("validateToken").value = token;
+          document.getElementById("keepAliveToken").value = token;
+          document.getElementById("profileToken").value = token;
+          document.getElementById("protectedToken").value = token;
+        }
+      }
+
+      async function signUp() {
+        const username = document.getElementById("signUpUsername").value;
+        const email = document.getElementById("signUpEmail").value;
+        const password = document.getElementById("signUpPassword").value;
+        const firstName = document.getElementById("signUpFirstName").value;
+        const lastName = document.getElementById("signUpLastName").value;
+
+        const result = await makeRequest(
+          `${API_BASE}/auth/signup?code=${FUNCTION_KEY}`,
+          "POST",
+          { username, email, password, firstName, lastName }
+        );
+
+        document.getElementById("signUpResponse").textContent = JSON.stringify(
+          result,
+          null,
+          2
+        );
+      }
+
+      async function validateToken() {
+        const token = document.getElementById("validateToken").value;
+
+        const result = await makeRequest(
+          `${API_BASE}/auth/validate?code=${FUNCTION_KEY}`,
+          "POST",
+          { token }
+        );
+
+        document.getElementById("validateResponse").textContent =
+          JSON.stringify(result, null, 2);
+      }
+
+      async function keepAlive() {
+        const token = document.getElementById("keepAliveToken").value;
+
+        const result = await makeRequest(
+          `${API_BASE}/auth/keepalive?code=${FUNCTION_KEY}`,
+          "GET",
+          null,
+          { Authorization: `Bearer ${token}` }
+        );
+
+        document.getElementById("keepAliveResponse").textContent =
+          JSON.stringify(result, null, 2);
+      }
+
+      async function getProfile() {
+        const token = document.getElementById("profileToken").value;
+
+        const result = await makeRequest(
+          `${API_BASE}/auth/me?code=${FUNCTION_KEY}`,
+          "GET",
+          null,
+          { Authorization: `Bearer ${token}` }
+        );
+
+        document.getElementById("profileResponse").textContent = JSON.stringify(
+          result,
+          null,
+          2
+        );
+      }
+
+      async function testProtectedEndpoint() {
+        const token = document.getElementById("protectedToken").value;
+
+        // Test through APIM gateway (this should require proper JWT token in production)
+        const result = await makeRequest(`${APIM_BASE}/users`, "GET", null, {
+          Authorization: `Bearer ${token}`,
+        });
+
+        document.getElementById("protectedResponse").textContent =
+          JSON.stringify(result, null, 2);
+      }
+    </script>
+  </body>
+</html>

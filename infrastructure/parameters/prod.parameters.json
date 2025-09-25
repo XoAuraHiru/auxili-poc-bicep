@@ -16,6 +16,9 @@
     },
     "apimAdminEmail": {
       "value": "admin@auxili.com"
+    },
+    "entraAppId": {
+      "value": "replace-with-prod-app-id"
     }
   }
 }

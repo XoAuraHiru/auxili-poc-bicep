@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Auxili Microservices - Authentication Demo</title>
+    <script src="https://alcdn.msauth.net/browser/2.30.0/js/msal-browser.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      button {
+        margin: 5px;
+        padding: 10px 20px;
+      }
+      .response {
+        background: #f5f5f5;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+      }
+      .error {
+        background: #ffe6e6;
+        border: 1px solid #ff0000;
+      }
+      .success {
+        background: #e6ffe6;
+        border: 1px solid #00aa00;
+      }
+      .token {
+        word-break: break-all;
+        font-family: monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Auxili Microservices Authentication Demo</h1>
+
+      <div id="authSection">
+        <h2>Authentication</h2>
+        <button onclick="signIn()">Sign In</button>
+        <button onclick="signOut()">Sign Out</button>
+        <button onclick="getToken()">Get Token</button>
+        <div id="authStatus"></div>
+      </div>
+
+      <div id="apiSection" style="margin-top: 20px">
+        <h2>API Testing</h2>
+        <div>
+          <button onclick="callHealthEndpoint()">
+            Test Health Endpoint (Public)
+          </button>
+          <button onclick="callProtectedEndpoint()">
+            Test Protected Endpoint
+          </button>
+        </div>
+        <div>
+          <label>API Base URL: </label>
+          <input
+            type="text"
+            id="apiBaseUrl"
+            value="https://your-apim-gateway.azure-api.net"
+            style="width: 300px"
+          />
+        </div>
+        <div id="apiResponse"></div>
+      </div>
+    </div>
+
+    <script>
+      // MSAL Configuration - Replace with your actual values
+      const msalConfig = {
+        auth: {
+          clientId: "your-app-registration-id", // Replace with your Application ID
+          authority: "https://login.microsoftonline.com/your-tenant-id", // Replace with your tenant ID
+          redirectUri: window.location.origin,
+        },
+        cache: {
+          cacheLocation: "sessionStorage",
+          storeAuthStateInCookie: false,
+        },
+      };
+
+      // Create MSAL instance
+      const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+      // Handle redirect promise
+      msalInstance
+        .handleRedirectPromise()
+        .then((response) => {
+          if (response) {
+            console.log("Redirect response:", response);
+            updateAuthStatus();
+          }
+        })
+        .catch((error) => {
+          console.error("Redirect error:", error);
+        });
+
+      // Login request configuration
+      const loginRequest = {
+        scopes: ["openid", "profile", "email"],
+      };
+
+      // Token request configuration
+      const tokenRequest = {
+        scopes: [
+          "https://your-tenant.onmicrosoft.com/your-app-name/API.Access",
+        ], // Replace with your API scope
+        account: null,
+      };
+
+      // Sign in function
+      async function signIn() {
+        try {
+          const response = await msalInstance.loginPopup(loginRequest);
+          console.log("Login successful:", response);
+          updateAuthStatus();
+        } catch (error) {
+          console.error("Login failed:", error);
+          document.getElementById(
+            "authStatus"
+          ).innerHTML = `<div class="response error">Login failed: ${error.message}</div>`;
+        }
+      }
+
+      // Sign out function
+      async function signOut() {
+        try {
+          await msalInstance.logoutPopup();
+          updateAuthStatus();
+        } catch (error) {
+          console.error("Logout failed:", error);
+        }
+      }
+
+      // Get access token
+      async function getToken() {
+        const account = msalInstance.getActiveAccount();
+        if (!account) {
+          document.getElementById(
+            "authStatus"
+          ).innerHTML += `<div class="response error">No active account found. Please sign in first.</div>`;
+          return null;
+        }
+
+        tokenRequest.account = account;
+
+        try {
+          const response = await msalInstance.acquireTokenSilent(tokenRequest);
+          console.log("Token acquired:", response);
+          document.getElementById(
+            "authStatus"
+          ).innerHTML += `<div class="response success">
+                        <strong>Access Token Acquired</strong><br>
+                        <div class="token">${response.accessToken}</div>
+                    </div>`;
+          return response.accessToken;
+        } catch (error) {
+          console.error("Token acquisition failed:", error);
+          // Fallback to interactive token acquisition
+          try {
+            const response = await msalInstance.acquireTokenPopup(tokenRequest);
+            console.log("Token acquired via popup:", response);
+            return response.accessToken;
+          } catch (popupError) {
+            console.error("Popup token acquisition failed:", popupError);
+            document.getElementById(
+              "authStatus"
+            ).innerHTML += `<div class="response error">Token acquisition failed: ${popupError.message}</div>`;
+            return null;
+          }
+        }
+      }
+
+      // Update authentication status
+      function updateAuthStatus() {
+        const account = msalInstance.getActiveAccount();
+        const statusDiv = document.getElementById("authStatus");
+
+        if (account) {
+          statusDiv.innerHTML = `
+                    <div class="response success">
+                        <strong>Signed in as:</strong> ${
+                          account.name || account.username
+                        }<br>
+                        <strong>Account ID:</strong> ${
+                          account.homeAccountId
+                        }<br>
+                        <strong>Tenant:</strong> ${account.tenantId}
+                    </div>`;
+        } else {
+          statusDiv.innerHTML = `<div class="response">Not signed in</div>`;
+        }
+      }
+
+      // Call public health endpoint
+      async function callHealthEndpoint() {
+        const baseUrl = document.getElementById("apiBaseUrl").value;
+        const responseDiv = document.getElementById("apiResponse");
+
+        try {
+          const response = await fetch(`${baseUrl}/products/health`);
+          const data = await response.text();
+
+          responseDiv.innerHTML = `
+                    <div class="response success">
+                        <strong>Health Endpoint Response (Public):</strong><br>
+                        Status: ${response.status}<br>
+                        Response: ${data}
+                    </div>`;
+        } catch (error) {
+          responseDiv.innerHTML = `
+                    <div class="response error">
+                        <strong>Health Endpoint Error:</strong><br>
+                        ${error.message}
+                    </div>`;
+        }
+      }
+
+      // Call protected endpoint
+      async function callProtectedEndpoint() {
+        const baseUrl = document.getElementById("apiBaseUrl").value;
+        const responseDiv = document.getElementById("apiResponse");
+
+        // Get access token
+        const token = await getToken();
+        if (!token) {
+          responseDiv.innerHTML = `
+                    <div class="response error">
+                        Cannot call protected endpoint without access token
+                    </div>`;
+          return;
+        }
+
+        try {
+          const response = await fetch(`${baseUrl}/products/1`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          const data = await response.text();
+
+          if (response.ok) {
+            responseDiv.innerHTML = `
+                        <div class="response success">
+                            <strong>Protected Endpoint Response:</strong><br>
+                            Status: ${response.status}<br>
+                            Response: ${data}
+                        </div>`;
+          } else {
+            responseDiv.innerHTML = `
+                        <div class="response error">
+                            <strong>Protected Endpoint Error:</strong><br>
+                            Status: ${response.status}<br>
+                            Response: ${data}
+                        </div>`;
+          }
+        } catch (error) {
+          responseDiv.innerHTML = `
+                    <div class="response error">
+                        <strong>Protected Endpoint Error:</strong><br>
+                        ${error.message}
+                    </div>`;
+        }
+      }
+
+      // Initialize on page load
+      window.addEventListener("load", () => {
+        updateAuthStatus();
+      });
+    </script>
+  </body>
+</html>

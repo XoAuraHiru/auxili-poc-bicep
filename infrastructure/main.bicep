@@ -13,6 +13,9 @@ param projectName string = 'microservices'
 @description('Admin email for APIM')
 param apimAdminEmail string = 'admin@auxili.com'
 
+@description('Existing Entra ID Application ID for authentication (leave empty for dev)')
+param entraAppId string = ''
+
 // Note: Private endpoints and developer IP are controlled per-module via env config
 
 // Generate unique suffix for globally unique resources
@@ -201,6 +204,29 @@ module apim 'modules/apim.bicep' = {
   }
 }
 
+// Entra ID App Registration Configuration
+module entraApp 'modules/entra-id-app.bicep' = {
+  name: 'entraApp'
+  params: {
+    appName: '${orgName}-${projectName}-api'
+    environmentName: environment
+    existingApplicationId: entraAppId
+  }
+}
+
+// Authentication Policies
+module authPolicies 'modules/auth-policies.bicep' = {
+  name: 'authPolicies'
+  params: {
+    applicationId: entraApp.outputs.applicationId
+    tenantId: entraApp.outputs.tenantId
+    environment: environment
+    enableAuth: currentConfig.enableAuth
+    issuerUrl: entraApp.outputs.issuerUrl
+    jwksUri: entraApp.outputs.jwksUri
+  }
+}
+
 // APIM API Configurations (connect Function Apps to APIM)
 module apimApis 'modules/apim-apis.bicep' = {
   name: 'apimApis'
@@ -213,6 +239,8 @@ module apimApis 'modules/apim-apis.bicep' = {
     ordersFunctionAppHostName: ordersFunction.outputs.functionAppHostName
     ordersFunctionAppName: ordersFunction.outputs.functionAppName
     environment: environment
+    protectedApiPolicy: authPolicies.outputs.protectedApiPolicy
+    publicApiPolicy: authPolicies.outputs.publicApiPolicy
   }
 }
 
@@ -227,3 +255,12 @@ output productFunctionAppHostName string = productFunction.outputs.functionAppHo
 output userFunctionAppHostName string = userFunction.outputs.functionAppHostName
 output ordersFunctionAppHostName string = ordersFunction.outputs.functionAppHostName
 output appInsightsName string = appInsights.outputs.appInsightsName
+
+// Authentication outputs
+output entraAppId string = entraApp.outputs.applicationId
+output entraAppName string = entraApp.outputs.appRegistrationName
+output tenantId string = entraApp.outputs.tenantId
+output authenticationEnabled bool = authPolicies.outputs.authenticationEnabled
+output issuerUrl string = entraApp.outputs.issuerUrl
+output authorizationEndpoint string = entraApp.outputs.authorizationEndpoint
+output tokenEndpoint string = entraApp.outputs.tokenEndpoint
