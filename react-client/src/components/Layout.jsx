@@ -1,5 +1,5 @@
-import { Outlet } from 'react-router-dom'
-import Header from './Header.jsx'
+import { Outlet } from "react-router-dom";
+import Header from "./Header.jsx";
 
 function Layout() {
   return (
@@ -12,7 +12,7 @@ function Layout() {
         <p>Azure Entra ID authentication demo · {new Date().getFullYear()}</p>
       </footer>
     </div>
-  )
+  );
 }
 
-export default Layout
+export default Layout;

@@ -1,31 +1,35 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import LoadingOverlay from '../components/LoadingOverlay.jsx'
-import { clearAuthState, exchangeAuthCode, getProfile } from '../services/authApi.js'
-import { useAuth } from '../hooks/useAuth.js'
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import LoadingOverlay from "../components/LoadingOverlay.jsx";
+import {
+  clearAuthState,
+  exchangeAuthCode,
+  getProfile,
+} from "../services/authApi.js";
+import { useAuth } from "../hooks/useAuth.js";
 
 function CallbackPage() {
-  const [error, setError] = useState(null)
-  const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const { login, setLoading, updateUser } = useAuth()
+  const [error, setError] = useState(null);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { login, setLoading, updateUser } = useAuth();
 
   useEffect(() => {
-    const code = searchParams.get('code')
-    const state = searchParams.get('state')
+    const code = searchParams.get("code");
+    const state = searchParams.get("state");
 
     async function completeLogin() {
       if (!code) {
-        setError('No authorization code provided. Try signing in again.')
-        return
+        setError("No authorization code provided. Try signing in again.");
+        return;
       }
 
       try {
-        setLoading(true)
-        const response = await exchangeAuthCode({ code, state })
+        setLoading(true);
+        const response = await exchangeAuthCode({ code, state });
 
         if (!response?.accessToken || !response?.user) {
-          throw new Error('Missing tokens in callback response')
+          throw new Error("Missing tokens in callback response");
         }
 
         const tokens = {
@@ -33,45 +37,51 @@ function CallbackPage() {
           idToken: response.idToken,
           refreshToken: response.refreshToken,
           expiresIn: response.expiresIn,
-          tokenType: response.tokenType
-        }
+          tokenType: response.tokenType,
+        };
 
-        login({ user: response.user, tokens })
+        login({ user: response.user, tokens });
 
         try {
-          const profile = await getProfile(tokens.accessToken)
+          const profile = await getProfile(tokens.accessToken);
           if (profile) {
-            updateUser({ ...response.user, ...profile })
+            updateUser({ ...response.user, ...profile });
           }
         } catch (profileError) {
-          console.warn('[CallbackPage] Failed to fetch profile', profileError)
+          console.warn("[CallbackPage] Failed to fetch profile", profileError);
         }
 
-        navigate('/', { replace: true })
+        navigate("/", { replace: true });
       } catch (err) {
-        console.error('[CallbackPage] Sign-in completion failed', err)
-        clearAuthState()
-        setError(err.message || 'Unable to complete sign-in')
+        console.error("[CallbackPage] Sign-in completion failed", err);
+        clearAuthState();
+        setError(err.message || "Unable to complete sign-in");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 
-    void completeLogin()
-  }, [login, navigate, searchParams, setLoading, updateUser])
+    void completeLogin();
+  }, [login, navigate, searchParams, setLoading, updateUser]);
 
   if (error) {
     return (
       <section className="page page--auth">
         <div className="card card--centered">
           <h1>Authentication error</h1>
-          <p role="alert" className="error-message">{error}</p>
-          <button type="button" className="btn" onClick={() => navigate('/auth/login')}>
+          <p role="alert" className="error-message">
+            {error}
+          </p>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => navigate("/auth/login")}
+          >
             Back to sign-in
           </button>
         </div>
       </section>
-    )
+    );
   }
 
   return (
@@ -80,7 +90,7 @@ function CallbackPage() {
         <LoadingOverlay message="Completing sign-in with Azure Entra ID..." />
       </div>
     </section>
-  )
+  );
 }
 
-export default CallbackPage
+export default CallbackPage;
