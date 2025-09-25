@@ -47,7 +47,8 @@ resource productApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = 
   properties: {
     displayName: 'Products API'
     description: 'API for product management'
-    serviceUrl: 'https://${productFunctionAppHostName}/api'
+    // Function host has empty routePrefix; include collection segment so item ops map correctly
+    serviceUrl: 'https://${productFunctionAppHostName}/products'
     path: 'products'
     protocols: ['https']
     subscriptionRequired: environment != 'dev'
@@ -62,7 +63,8 @@ resource getProductOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Get Product'
     method: 'GET'
-    urlTemplate: '/products/{id}'
+    // Urls are relative to API base path "products"; remove duplicated segment
+    urlTemplate: '/{id}'
     templateParameters: [
       {
         name: 'id'
@@ -79,7 +81,8 @@ resource createProductOperation 'Microsoft.ApiManagement/service/apis/operations
   properties: {
     displayName: 'Create Product'
     method: 'POST'
-    urlTemplate: '/products'
+    // Root collection path (POST /products)
+    urlTemplate: '/'
   }
 }
 
@@ -89,7 +92,7 @@ resource productHealthOperation 'Microsoft.ApiManagement/service/apis/operations
   properties: {
     displayName: 'Health'
     method: 'GET'
-    urlTemplate: '/products/health'
+    urlTemplate: '/health'
   }
 }
 
@@ -100,7 +103,8 @@ resource userApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   properties: {
     displayName: 'Users API'
     description: 'API for user management'
-    serviceUrl: 'https://${userFunctionAppHostName}/api'
+    // Include collection segment to align backend path
+    serviceUrl: 'https://${userFunctionAppHostName}/users'
     path: 'users'
     protocols: ['https']
     subscriptionRequired: environment != 'dev'
@@ -115,7 +119,7 @@ resource getUserOperation 'Microsoft.ApiManagement/service/apis/operations@2023-
   properties: {
     displayName: 'Get User'
     method: 'GET'
-    urlTemplate: '/users/{id}'
+    urlTemplate: '/{id}'
     templateParameters: [
       {
         name: 'id'
@@ -132,7 +136,7 @@ resource createUserOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Create User'
     method: 'POST'
-    urlTemplate: '/users'
+    urlTemplate: '/'
   }
 }
 
@@ -142,7 +146,7 @@ resource listUsersOperation 'Microsoft.ApiManagement/service/apis/operations@202
   properties: {
     displayName: 'List Users'
     method: 'GET'
-    urlTemplate: '/users'
+    urlTemplate: '/'
   }
 }
 
@@ -152,7 +156,7 @@ resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@20
   properties: {
     displayName: 'Health'
     method: 'GET'
-    urlTemplate: '/users/health'
+    urlTemplate: '/health'
   }
 }
 
@@ -252,7 +256,7 @@ resource getOrderOperation 'Microsoft.ApiManagement/service/apis/operations@2023
   properties: {
     displayName: 'Get Order'
     method: 'GET'
-    urlTemplate: '/orders/{id}'
+    urlTemplate: '/{id}'
     templateParameters: [
       {
         name: 'id'
@@ -269,7 +273,7 @@ resource ordersHealthOperation 'Microsoft.ApiManagement/service/apis/operations@
   properties: {
     displayName: 'Health'
     method: 'GET'
-    urlTemplate: '/orders/health'
+    urlTemplate: '/health'
   }
 }
 
