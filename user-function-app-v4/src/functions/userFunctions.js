@@ -18,14 +18,42 @@ const createUserSchema = {
 };
 const validateCreateUser = ajv.compile(createUserSchema);
 
-// GET /api/users/{id}
+// IMPORTANT: Health check MUST come before the {id} route
+app.http('UserHealth', {
+    methods: ['GET'],
+    authLevel: 'anonymous', 
+    route: 'users/health',  // More specific route first
+    handler: async (request, context) => {
+        context.log('User health check requested');
+        return {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            jsonBody: { 
+                service: 'users', 
+                status: 'healthy', 
+                timestamp: new Date().toISOString(),
+                message: 'User service is running properly'
+            }
+        };
+    }
+});
+
+// GET /api/users/{id} - This must come AFTER the health route
 app.http('GetUser', {
     methods: ['GET'],
-    authLevel: 'function',
+    authLevel: 'anonymous',
     route: 'users/{id}',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const id = request.params.id;
+        
+        // Prevent health being treated as an ID
+        if (id === 'health') {
+            return failure(400, 'Invalid user ID', correlationId);
+        }
         
         try {
             const user = {
@@ -50,88 +78,56 @@ app.http('GetUser', {
     }
 });
 
-// POST /api/users  
-app.http('CreateUser', {
-    methods: ['POST'],
-    authLevel: 'function',
+// Combined Users Handler for GET/POST to /users
+app.http('UsersHandler', {
+    methods: ['GET', 'POST'],
+    authLevel: 'anonymous',
     route: 'users',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         
         try {
-            const body = await request.json();
-            
-            // Validate request body
-            if (!validateCreateUser(body)) {
-                context.log.warn('[CreateUser] Validation failed', validateCreateUser.errors);
-                return failure(400, 'ValidationFailed', correlationId, validateCreateUser.errors);
+            if (request.method.toUpperCase() === 'GET') {
+                // List users
+                const users = [
+                    { id: '1', username: 'alice', email: 'alice@example.com' },
+                    { id: '2', username: 'bob', email: 'bob@example.com' },
+                    { id: '3', username: 'charlie', email: 'charlie@example.com' }
+                ];
+                
+                context.log(`[ListUsers] Returning ${users.length} users`);
+                return success(200, { users, count: users.length }, correlationId);
+                
+            } else if (request.method.toUpperCase() === 'POST') {
+                // Create user
+                const body = await request.json();
+                
+                if (!validateCreateUser(body)) {
+                    context.log.warn('[CreateUser] Validation failed', validateCreateUser.errors);
+                    return failure(400, 'ValidationFailed', correlationId, validateCreateUser.errors);
+                }
+                
+                const id = Math.random().toString(36).slice(2, 10);
+                const created = { 
+                    id, 
+                    ...body, 
+                    profile: {
+                        firstName: '',
+                        lastName: '',
+                        joinDate: new Date().toISOString().split('T')[0]
+                    },
+                    createdAt: new Date().toISOString() 
+                };
+                
+                context.log(`[CreateUser] Created user ${id}`);
+                return success(201, created, correlationId);
             }
             
-            const id = Math.random().toString(36).slice(2, 10);
-            const created = { 
-                id, 
-                ...body, 
-                profile: {
-                    firstName: '',
-                    lastName: '',
-                    joinDate: new Date().toISOString().split('T')[0]
-                },
-                createdAt: new Date().toISOString() 
-            };
-            
-            context.log(`[CreateUser] Created user ${id}`);
-            return success(201, created, correlationId);
+            return failure(405, 'Method not allowed', correlationId);
             
         } catch (error) {
-            context.log.error(`[CreateUser] Error: ${error.message}`);
+            context.log.error(`[UsersHandler] Error: ${error.message}`);
             return failure(500, 'Internal server error', correlationId);
         }
-    }
-});
-
-// GET /api/users (List users)
-app.http('ListUsers', {
-    methods: ['GET'],
-    authLevel: 'function',
-    route: 'users',
-    handler: async (request, context) => {
-        const correlationId = withCorrelation(context, request);
-        
-        try {
-            // Check if this is a GET to /users (list) vs POST to /users (create)
-            if (request.method.toUpperCase() !== 'GET') {
-                return failure(405, 'Method not allowed', correlationId);
-            }
-            
-            const users = [
-                { id: '1', username: 'alice', email: 'alice@example.com' },
-                { id: '2', username: 'bob', email: 'bob@example.com' },
-                { id: '3', username: 'charlie', email: 'charlie@example.com' }
-            ];
-            
-            context.log(`[ListUsers] Returning ${users.length} users`);
-            return success(200, { users, count: users.length }, correlationId);
-            
-        } catch (error) {
-            context.log.error(`[ListUsers] Error: ${error.message}`);
-            return failure(500, 'Internal server error', correlationId);
-        }
-    }
-});
-
-// Health check
-app.http('UserHealth', {
-    methods: ['GET'],
-    authLevel: 'anonymous', 
-    route: 'users/health',
-    handler: async (request, context) => {
-        return {
-            status: 200,
-            jsonBody: { 
-                service: 'users', 
-                status: 'healthy', 
-                timestamp: new Date().toISOString() 
-            }
-        };
     }
 });
