@@ -1,0 +1,10 @@
+{
+    "IsEncrypted": false,
+    "Values": {
+        "FUNCTIONS_WORKER_RUNTIME": "node",
+        "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+        "NATIVE_AUTH_CLIENT_ID": "00000000-0000-0000-0000-000000000000",
+        "NATIVE_AUTH_TENANT_SUBDOMAIN": "your-tenant-subdomain",
+        "NATIVE_AUTH_SCOPES": "openid profile email offline_access"
+    }
+}

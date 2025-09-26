@@ -1,23 +1,41 @@
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay.jsx";
-import { requestAuthUrl } from "../services/authApi.js";
+import {
+  getProfile,
+  passwordSignIn,
+  requestAuthUrl,
+} from "../services/authApi.js";
 import { getApiBaseUrl } from "../services/apiClient.js";
+import { useAuth } from "../hooks/useAuth.js";
 
 function LoginPage() {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const [formCorrelationId, setFormCorrelationId] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { login, setLoading, updateUser, setError: setAuthError } = useAuth();
   const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID || "Not set";
   const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID || "Not set";
   const hasSubscriptionKey = Boolean(
     import.meta.env.VITE_APIM_SUBSCRIPTION_KEY
   );
+  const passwordLoginEnabled =
+    String(
+      import.meta.env.VITE_ENABLE_PASSWORD_SIGNIN ?? "true"
+    ).toLowerCase() !== "false";
+  const isDevBuild = Boolean(import.meta.env.DEV);
 
   const handleSignIn = async () => {
     try {
-      setError(null);
-      setIsSubmitting(true);
+      setAuthError?.(null);
+      setFormError(null);
+      setFormCorrelationId(null);
+      setIsRedirecting(true);
       const response = await requestAuthUrl();
       if (!response?.authUrl) {
         throw new Error(
@@ -27,10 +45,100 @@ function LoginPage() {
       window.location.assign(response.authUrl);
     } catch (err) {
       console.error("[LoginPage] Sign-in failed", err);
-      setError(err.message || "Unable to start sign-in flow");
-      setIsSubmitting(false);
+      setFormError(err.message || "Unable to start sign-in flow");
+      setIsRedirecting(false);
     }
   };
+
+  const handlePasswordSignIn = async (event) => {
+    event.preventDefault();
+
+    if (!passwordLoginEnabled) {
+      return;
+    }
+
+    try {
+      setAuthError?.(null);
+      setFormError(null);
+      setFormCorrelationId(null);
+
+      if (!email || !password) {
+        setFormError("Email and password are required");
+        return;
+      }
+
+      setIsPasswordSubmitting(true);
+      setLoading?.(true);
+
+      const response = await passwordSignIn({ email, password });
+
+      if (!response?.accessToken || !response?.user) {
+        throw new Error("Authentication response did not include tokens");
+      }
+
+      const tokens = {
+        accessToken: response.accessToken,
+        idToken: response.idToken,
+        refreshToken: response.refreshToken,
+        expiresIn: response.expiresIn,
+        tokenType: response.tokenType,
+        scope: response.scope,
+        expiresOn: response.expiresOn,
+      };
+
+      login({ user: response.user, tokens });
+
+      if (response?.correlationId) {
+        setFormCorrelationId(response.correlationId);
+      }
+
+      try {
+        const profile = await getProfile(tokens.accessToken);
+        if (profile) {
+          updateUser({ ...response.user, ...profile });
+        }
+      } catch (profileError) {
+        console.warn("[LoginPage] Failed to fetch profile", profileError);
+      }
+
+      setEmail("");
+      setPassword("");
+
+      const redirectPath = location.state?.from?.pathname || "/";
+      navigate(redirectPath, { replace: true });
+    } catch (err) {
+      console.error("[LoginPage] Password sign-in failed", err);
+      const correlationId =
+        err?.correlationId ?? err?.data?.correlationId ?? null;
+      const code = err?.code || err?.data?.details?.code || null;
+      const message = err?.data?.error || err?.message || "Unable to sign in";
+
+      if (code === "redirect_required") {
+        setFormError(
+          "Native auth isn't available for this account. Redirecting to Microsoft sign-in..."
+        );
+        setFormCorrelationId(correlationId);
+        await handleSignIn();
+        return;
+      }
+
+      setFormError(message);
+      setFormCorrelationId(correlationId);
+      setAuthError?.({
+        message,
+        correlationId,
+      });
+    } finally {
+      setIsPasswordSubmitting(false);
+      setLoading?.(false);
+    }
+  };
+
+  const showLoading =
+    isRedirecting || (passwordLoginEnabled && isPasswordSubmitting);
+  const loadingMessage = isRedirecting
+    ? "Redirecting to Azure Entra ID..."
+    : "Signing you in with corporate credentials...";
 
   return (
     <section className="page page--auth">
@@ -42,54 +150,74 @@ function LoginPage() {
           for authentication.
         </p>
 
-        <div className="info-panel">
-          <h2>Environment</h2>
-          <dl>
-            <dt>API Base URL</dt>
-            <dd>
-              {getApiBaseUrl() || (
-                <span className="badge badge--warning">Not configured</span>
-              )}
-            </dd>
-            <dt>Entra client ID</dt>
-            <dd className="mono">{clientId}</dd>
-            <dt>Tenant ID</dt>
-            <dd className="mono">{tenantId}</dd>
-            <dt>APIM subscription key</dt>
-            <dd>
-              {hasSubscriptionKey ? (
-                "Configured"
-              ) : (
-                <span className="badge badge--warning">Not configured</span>
-              )}
-            </dd>
-            <dt>After sign-in</dt>
-            <dd>
-              You&apos;ll be redirected to `/auth/callback` and brought back to{" "}
-              {location.state?.from?.pathname || "the dashboard"}.
-            </dd>
-          </dl>
-        </div>
-
         <div className="actions">
           <button
             type="button"
             className="btn btn--primary"
             onClick={handleSignIn}
-            disabled={isSubmitting}
+            disabled={showLoading}
           >
             Sign in with Microsoft
           </button>
         </div>
 
-        {isSubmitting && (
-          <LoadingOverlay message="Redirecting to Azure Entra ID..." />
+        <p className="muted">
+          Need an account? <Link to="/auth/signup">Create one now</Link>.
+        </p>
+
+        {passwordLoginEnabled && (
+          <>
+            <div className="divider">
+              <span>or</span>
+            </div>
+
+            <form className="auth-form" onSubmit={handlePasswordSignIn}>
+              <div className="form-group">
+                <label htmlFor="email">Work or school email</label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={showLoading}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={showLoading}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="btn btn--secondary"
+                disabled={showLoading}
+              >
+                Sign in with email & password
+              </button>
+            </form>
+          </>
         )}
 
-        {error && (
-          <p role="alert" className="error-message">
-            {error}
-          </p>
+        {showLoading && <LoadingOverlay message={loadingMessage} />}
+
+        {formError && (
+          <div role="alert" className="error-message">
+            <p>{formError}</p>
+            {formCorrelationId && (
+              <p className="muted mono">
+                Correlation ID: <span>{formCorrelationId}</span>
+              </p>
+            )}
+          </div>
         )}
 
         <div className="hint">
@@ -99,6 +227,35 @@ function LoginPage() {
           </p>
         </div>
       </div>
+      {isDevBuild && (
+        <div className="dev-environment-details">
+          <p className="dev-environment-details__label">
+            Development environment
+          </p>
+          <ul>
+            <li>
+              <strong>API Base URL:</strong>{" "}
+              {getApiBaseUrl() || "(not configured)"}
+            </li>
+            <li>
+              <strong>Entra client ID:</strong>{" "}
+              <span className="mono">{clientId}</span>
+            </li>
+            <li>
+              <strong>Tenant ID:</strong>{" "}
+              <span className="mono">{tenantId}</span>
+            </li>
+            <li>
+              <strong>APIM subscription key:</strong>{" "}
+              {hasSubscriptionKey ? "Configured" : "Not configured"}
+            </li>
+            <li>
+              <strong>Post sign-in redirect:</strong>{" "}
+              {location.state?.from?.pathname || "/"}
+            </li>
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,0 +1,22 @@
+{
+    "name": "native-auth-function-app",
+    "version": "1.0.0",
+    "description": "Azure Functions app providing native email/password authentication via Microsoft Entra native auth APIs",
+    "type": "module",
+    "main": "src/functions/*.js",
+    "scripts": {
+        "build": "echo \"JavaScript - no build step required\"",
+        "start": "func start --javascript",
+        "deploy": "func azure functionapp publish",
+        "test": "echo \"No automated tests yet\""
+    },
+    "dependencies": {
+        "@azure/functions": "^4.8.0",
+        "ajv": "^8.17.1",
+        "ajv-formats": "^3.0.1",
+        "node-fetch": "^3.3.2"
+    },
+    "devDependencies": {
+        "@types/node": "18.x"
+    }
+}
