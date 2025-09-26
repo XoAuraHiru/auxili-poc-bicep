@@ -1,25 +1,33 @@
 import { NativeAuthError } from '../errors/NativeAuthError.js';
 
+const SUPPORTED_CHALLENGE_TYPES = new Set(['oob', 'password', 'redirect', 'sms']);
+
 const splitChallengeTypes = (value) => (value || '')
-    .split(/[,\s]+/)
+    .split(/[\s,]+/)
     .map((token) => token.trim().toLowerCase())
     .filter(Boolean);
 
+const filterSupportedChallengeTypes = (tokens) => tokens
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => SUPPORTED_CHALLENGE_TYPES.has(token));
+
 const resolveChallengeTypeString = (rawValue, fallbackTokens, requiredTokens = [], preferredOrder = []) => {
-    const tokens = splitChallengeTypes(rawValue);
-    const baseTokens = tokens.length ? tokens : Array.from(fallbackTokens || []);
-    const tokenSet = new Set(baseTokens.map((token) => token.toLowerCase()));
+    const tokens = filterSupportedChallengeTypes(splitChallengeTypes(rawValue));
+    const fallbackList = filterSupportedChallengeTypes(Array.from(fallbackTokens || []));
+    const baseTokens = tokens.length ? tokens : fallbackList;
+    const tokenSet = new Set(baseTokens);
 
     requiredTokens.forEach((token) => {
-        if (token) {
-            tokenSet.add(token.toLowerCase());
+        const normalized = typeof token === 'string' ? token.trim().toLowerCase() : '';
+        if (SUPPORTED_CHALLENGE_TYPES.has(normalized)) {
+            tokenSet.add(normalized);
         }
     });
 
     const ordered = [];
     preferredOrder.forEach((token) => {
-        const normalized = token.toLowerCase();
-        if (tokenSet.has(normalized)) {
+        const normalized = typeof token === 'string' ? token.trim().toLowerCase() : '';
+        if (tokenSet.has(normalized) && SUPPORTED_CHALLENGE_TYPES.has(normalized)) {
             ordered.push(normalized);
             tokenSet.delete(normalized);
         }
@@ -74,7 +82,7 @@ const RESOLVED_SIGNUP_CHALLENGE_TYPE_STRING = resolveChallengeTypeString(
     process.env.NATIVE_AUTH_SIGNUP_CHALLENGE_TYPES || process.env.NATIVE_AUTH_CHALLENGE_TYPES,
     DEFAULT_SIGNUP_CHALLENGE_TYPES,
     ['redirect', 'oob'],
-    ['oob', 'password', 'redirect', 'sms', 'email']
+    ['oob', 'password', 'sms', 'redirect']
 );
 
 const DEFAULT_SIGNUP_ATTRIBUTE_MAP = {

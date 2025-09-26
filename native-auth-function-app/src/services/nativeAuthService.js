@@ -297,7 +297,8 @@ export const signUpStart = async ({ email, password, firstName, lastName, additi
         client_id: config.clientId,
         username: email,
         password,
-        challenge_type: config.signupChallengeTypeString
+        challenge_type: config.signupChallengeTypeString,
+        channel_hint: 'email'
     };
 
     if (attributes) {
@@ -322,12 +323,40 @@ export const signUpStart = async ({ email, password, firstName, lastName, additi
         });
     }
 
+    let challengeData = null;
+
+    try {
+        challengeData = await callNativeAuthEndpoint(
+            config,
+            '/signup/v1.0/challenge',
+            {
+                client_id: config.clientId,
+                continuation_token: continuationToken,
+                challenge_type: config.signupChallengeTypeString
+            },
+            correlationId,
+            context
+        );
+    } catch (error) {
+        context.log.error('[NativeAuth][SignUp] Challenge request failed', safeStringify({
+            correlationId,
+            message: error?.message
+        }));
+        throw error;
+    }
+
+    const challengeContinuationToken = challengeData?.continuation_token || continuationToken;
+
     return success(200, {
-        status: 'pending_verification',
-        continuationToken,
-        challengeType: startData?.challenge_type || null,
-        challengeTargetLabel: startData?.challenge_target_label || null,
-        message: 'Check your email for a verification code to continue registration.'
+        status: 'code_sent',
+        continuationToken: challengeContinuationToken,
+        challengeType: challengeData?.challenge_type || startData?.challenge_type || null,
+        challengeTargetLabel: challengeData?.challenge_target_label || startData?.challenge_target_label || null,
+        challengeChannel: challengeData?.challenge_channel || null,
+        challengeIntervalSeconds: typeof challengeData?.interval === 'number' ? challengeData.interval : null,
+        challengeBindingMethod: challengeData?.binding_method || null,
+        codeLength: typeof challengeData?.code_length === 'number' ? challengeData.code_length : null,
+        message: 'Verification code sent. Enter the code we emailed you to continue registration.'
     }, correlationId);
 };
 
@@ -403,7 +432,8 @@ export const passwordResetStart = async ({ username, correlationId, context }) =
     const payload = {
         client_id: config.clientId,
         username,
-        challenge_type: config.signupChallengeTypeString
+        challenge_type: config.signupChallengeTypeString,
+        channel_hint: 'email'
     };
 
     const resetData = await callNativeAuthEndpoint(
@@ -424,12 +454,40 @@ export const passwordResetStart = async ({ username, correlationId, context }) =
         });
     }
 
+    let challengeData = null;
+
+    try {
+        challengeData = await callNativeAuthEndpoint(
+            config,
+            '/resetpassword/v1.0/challenge',
+            {
+                client_id: config.clientId,
+                continuation_token: continuationToken,
+                challenge_type: config.signupChallengeTypeString
+            },
+            correlationId,
+            context
+        );
+    } catch (error) {
+        context.log.error('[NativeAuth][PasswordReset] Challenge request failed', safeStringify({
+            correlationId,
+            message: error?.message
+        }));
+        throw error;
+    }
+
+    const challengeContinuationToken = challengeData?.continuation_token || continuationToken;
+
     return success(200, {
-        status: 'pending_verification',
-        continuationToken,
-        challengeType: resetData?.challenge_type || null,
-        challengeTargetLabel: resetData?.challenge_target_label || null,
-        message: 'Check your email for a verification code to reset your password.'
+        status: 'code_sent',
+        continuationToken: challengeContinuationToken,
+        challengeType: challengeData?.challenge_type || resetData?.challenge_type || null,
+        challengeTargetLabel: challengeData?.challenge_target_label || resetData?.challenge_target_label || null,
+        challengeChannel: challengeData?.challenge_channel || null,
+        challengeIntervalSeconds: typeof challengeData?.interval === 'number' ? challengeData.interval : null,
+        challengeBindingMethod: challengeData?.binding_method || null,
+        codeLength: typeof challengeData?.code_length === 'number' ? challengeData.code_length : null,
+        message: 'Verification code sent. Enter the code we emailed you to continue resetting your password.'
     }, correlationId);
 };
 

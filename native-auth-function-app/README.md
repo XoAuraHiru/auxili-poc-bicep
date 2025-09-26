@@ -59,6 +59,16 @@ npm run build
 npm test
 ```
 
+## OTP delivery flow
+
+- `POST /auth/signup/start` now triggers both the `/signup/v1.0/start` and `/signup/v1.0/challenge` Microsoft Entra calls. The function returns challenge metadata (channel, interval, obfuscated email) and a refreshed continuation token once the email OTP has been issued.
+- `POST /auth/password/reset/start` behaves the same way for the password reset flow by chaining `/resetpassword/v1.0/start` and `/resetpassword/v1.0/challenge`.
+- To resend a verification code, call the dedicated relays:
+  - `POST /auth/signup/challenge` with the latest continuation token.
+  - `POST /auth/password/reset/challenge` (future enhancement) or restart the reset flow.
+
+Each response includes `challengeIntervalSeconds` and `codeLength` hints so the client can respect Azure throttling guidance before attempting a resend.
+
 ## Deployment
 
 Publish to Azure using the existing script:
