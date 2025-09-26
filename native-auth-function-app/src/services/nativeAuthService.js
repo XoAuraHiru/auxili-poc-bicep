@@ -297,7 +297,8 @@ export const signUpStart = async ({ email, password, firstName, lastName, additi
         client_id: config.clientId,
         username: email,
         password,
-        challenge_type: config.signupChallengeTypeString
+        challenge_type: config.signupChallengeTypeString,
+        channel_hint: 'email'
     };
 
     if (attributes) {
@@ -322,12 +323,40 @@ export const signUpStart = async ({ email, password, firstName, lastName, additi
         });
     }
 
+    let challengeData = null;
+
+    try {
+        challengeData = await callNativeAuthEndpoint(
+            config,
+            '/signup/v1.0/challenge',
+            {
+                client_id: config.clientId,
+                continuation_token: continuationToken,
+                challenge_type: config.signupChallengeTypeString
+            },
+            correlationId,
+            context
+        );
+    } catch (error) {
+        context.log.error('[NativeAuth][SignUp] Challenge request failed', safeStringify({
+            correlationId,
+            message: error?.message
+        }));
+        throw error;
+    }
+
+    const challengeContinuationToken = challengeData?.continuation_token || continuationToken;
+
     return success(200, {
-        status: 'pending_verification',
-        continuationToken,
-        challengeType: startData?.challenge_type || null,
-        challengeTargetLabel: startData?.challenge_target_label || null,
-        message: 'Check your email for a verification code to continue registration.'
+        status: 'code_sent',
+        continuationToken: challengeContinuationToken,
+        challengeType: challengeData?.challenge_type || startData?.challenge_type || null,
+        challengeTargetLabel: challengeData?.challenge_target_label || startData?.challenge_target_label || null,
+        challengeChannel: challengeData?.challenge_channel || null,
+        challengeIntervalSeconds: typeof challengeData?.interval === 'number' ? challengeData.interval : null,
+        challengeBindingMethod: challengeData?.binding_method || null,
+        codeLength: typeof challengeData?.code_length === 'number' ? challengeData.code_length : null,
+        message: 'Verification code sent. Enter the code we emailed you to continue registration.'
     }, correlationId);
 };
 
@@ -382,11 +411,35 @@ export const signUpContinue = async ({ continuationToken, grantType, code, passw
     );
 
     if (grantType === 'oob') {
-        return success(200, {
-            status: 'verify_password',
-            continuationToken: continueData?.continuation_token || continuationToken,
-            challengeType: continueData?.challenge_type || null,
-            message: 'Code verified. Confirm your password to finish sign-up.'
+        const nextContinuationToken = continueData?.continuation_token || continuationToken;
+        const nextChallengeType = continueData?.challenge_type ? String(continueData.challenge_type).toLowerCase() : null;
+        const requiredAttributes = Array.isArray(continueData?.required_attributes)
+            ? continueData.required_attributes.map((item) => item?.name || item).filter(Boolean)
+            : [];
+
+        if (requiredAttributes.length) {
+            return success(200, {
+                status: 'attributes_required',
+                continuationToken: nextContinuationToken,
+                requiredAttributes,
+                message: 'Additional information is required to finish registration.'
+            }, correlationId);
+        }
+
+        if (nextChallengeType === 'password') {
+            return success(200, {
+                status: 'verify_password',
+                continuationToken: nextContinuationToken,
+                challengeType: 'password',
+                message: 'Code verified. Confirm your password to finish sign-up.'
+            }, correlationId);
+        }
+
+        return success(201, {
+            status: 'completed',
+            continuationToken: nextContinuationToken,
+            challengeType: nextChallengeType,
+            message: 'Registration completed. You can now sign in with your password.'
         }, correlationId);
     }
 
@@ -403,7 +456,8 @@ export const passwordResetStart = async ({ username, correlationId, context }) =
     const payload = {
         client_id: config.clientId,
         username,
-        challenge_type: config.signupChallengeTypeString
+        challenge_type: config.signupChallengeTypeString,
+        channel_hint: 'email'
     };
 
     const resetData = await callNativeAuthEndpoint(
@@ -424,35 +478,89 @@ export const passwordResetStart = async ({ username, correlationId, context }) =
         });
     }
 
+    let challengeData = null;
+
+    try {
+        challengeData = await callNativeAuthEndpoint(
+            config,
+            '/resetpassword/v1.0/challenge',
+            {
+                client_id: config.clientId,
+                continuation_token: continuationToken,
+                challenge_type: config.signupChallengeTypeString
+            },
+            correlationId,
+            context
+        );
+    } catch (error) {
+        context.log.error('[NativeAuth][PasswordReset] Challenge request failed', safeStringify({
+            correlationId,
+            message: error?.message
+        }));
+        throw error;
+    }
+
+    const challengeContinuationToken = challengeData?.continuation_token || continuationToken;
+
     return success(200, {
-        status: 'pending_verification',
-        continuationToken,
-        challengeType: resetData?.challenge_type || null,
-        challengeTargetLabel: resetData?.challenge_target_label || null,
-        message: 'Check your email for a verification code to reset your password.'
+        status: 'code_sent',
+        continuationToken: challengeContinuationToken,
+        challengeType: challengeData?.challenge_type || resetData?.challenge_type || null,
+        challengeTargetLabel: challengeData?.challenge_target_label || resetData?.challenge_target_label || null,
+        challengeChannel: challengeData?.challenge_channel || null,
+        challengeIntervalSeconds: typeof challengeData?.interval === 'number' ? challengeData.interval : null,
+        challengeBindingMethod: challengeData?.binding_method || null,
+        codeLength: typeof challengeData?.code_length === 'number' ? challengeData.code_length : null,
+        message: 'Verification code sent. Enter the code we emailed you to continue resetting your password.'
     }, correlationId);
 };
 
 export const passwordResetContinue = async ({ continuationToken, grantType, code, newPassword, correlationId, context }) => {
     const config = ensureNativeConfig();
-    const payload = {
+    const basePayload = {
         client_id: config.clientId,
-        continuation_token: continuationToken,
-        grant_type: grantType
+        continuation_token: continuationToken
     };
 
+    let endpoint = null;
+    let requestPayload = null;
+
     if (grantType === 'oob') {
-        payload.oob = code;
+        endpoint = '/resetpassword/v1.0/continue';
+        requestPayload = {
+            ...basePayload,
+            grant_type: 'oob',
+            oob: code
+        };
+    } else if (grantType === 'password') {
+        if (!newPassword) {
+            throw new NativeAuthError('New password is required to complete the reset flow', {
+                status: 400,
+                data: {
+                    grantType
+                },
+                path: '/resetpassword/v1.0/submit'
+            });
+        }
+        endpoint = '/resetpassword/v1.0/submit';
+        requestPayload = {
+            ...basePayload,
+            new_password: newPassword
+        };
+    } else {
+        throw new NativeAuthError(`Unsupported password reset grant type: ${grantType}`, {
+            status: 400,
+            data: {
+                grantType
+            },
+            path: '/resetpassword'
+        });
     }
 
-    if (grantType === 'password') {
-        payload.new_password = newPassword;
-    }
-
-    const continueData = await callNativeAuthEndpoint(
+    const responseData = await callNativeAuthEndpoint(
         config,
-        '/resetpassword/v1.0/continue',
-        payload,
+        endpoint,
+        requestPayload,
         correlationId,
         context
     );
@@ -460,15 +568,41 @@ export const passwordResetContinue = async ({ continuationToken, grantType, code
     if (grantType === 'oob') {
         return success(200, {
             status: 'verify_password',
-            continuationToken: continueData?.continuation_token || continuationToken,
-            challengeType: continueData?.challenge_type || null,
+            continuationToken: responseData?.continuation_token || continuationToken,
+            challengeType: responseData?.challenge_type || 'password',
             message: 'Code verified. Confirm your new password to finish resetting your password.'
         }, correlationId);
+    }
+
+    let resetStatus = null;
+
+    const pollContinuationToken = responseData?.continuation_token || null;
+    if (pollContinuationToken) {
+        try {
+            const pollData = await callNativeAuthEndpoint(
+                config,
+                '/resetpassword/v1.0/poll_completion',
+                {
+                    client_id: config.clientId,
+                    continuation_token: pollContinuationToken
+                },
+                correlationId,
+                context
+            );
+            resetStatus = pollData?.status || null;
+        } catch (pollError) {
+            context.log.warn('[NativeAuth][PasswordReset] Poll completion failed', safeStringify({
+                correlationId,
+                message: pollError?.message
+            }));
+        }
     }
 
     return success(200, {
         status: 'completed',
         message: 'Password reset successful. You can now sign in with your new password.',
-        continuationToken: continueData?.continuation_token || null
+        continuationToken: pollContinuationToken,
+        pollIntervalSeconds: typeof responseData?.poll_interval === 'number' ? responseData.poll_interval : null,
+        resetStatus: resetStatus || 'unknown'
     }, correlationId);
 };
