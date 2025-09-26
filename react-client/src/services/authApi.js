@@ -59,6 +59,77 @@ export async function passwordSignIn({ email, password, signal } = {}) {
     }
 }
 
+export function signupStart({ firstName, lastName, email, password, signal } = {}) {
+    if (!firstName || !lastName || !email || !password) {
+        throw new Error('First name, last name, email, and password are required')
+    }
+
+    const payload = {
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        email: String(email).trim().toLowerCase(),
+        password: String(password)
+    }
+
+    return apiRequest('/auth/signup/start', {
+        method: 'POST',
+        body: payload,
+        signal
+    })
+}
+
+export function signupSendChallenge({ continuationToken, signal } = {}) {
+    if (!continuationToken) {
+        throw new Error('Continuation token is required to send the verification code')
+    }
+
+    return apiRequest('/auth/signup/challenge', {
+        method: 'POST',
+        body: {
+            continuationToken
+        },
+        signal
+    })
+}
+
+export function signupVerifyCode({ continuationToken, code, signal } = {}) {
+    if (!continuationToken) {
+        throw new Error('Continuation token is required')
+    }
+    if (!code) {
+        throw new Error('Verification code is required')
+    }
+
+    return apiRequest('/auth/signup/continue', {
+        method: 'POST',
+        body: {
+            continuationToken,
+            grantType: 'oob',
+            code: String(code).trim()
+        },
+        signal
+    })
+}
+
+export function signupComplete({ continuationToken, password, signal } = {}) {
+    if (!continuationToken) {
+        throw new Error('Continuation token is required')
+    }
+    if (!password) {
+        throw new Error('Password is required')
+    }
+
+    return apiRequest('/auth/signup/continue', {
+        method: 'POST',
+        body: {
+            continuationToken,
+            grantType: 'password',
+            password: String(password)
+        },
+        signal
+    })
+}
+
 export async function exchangeAuthCode({ code, state }) {
     if (!code) {
         throw new Error('Missing authorization code')

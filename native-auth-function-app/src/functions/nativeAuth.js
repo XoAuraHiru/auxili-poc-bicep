@@ -18,6 +18,65 @@ const signInSchema = {
 
 const validateSignIn = ajv.compile(signInSchema);
 
+const signUpStartSchema = {
+    type: 'object',
+    properties: {
+        email: { type: 'string', format: 'email' },
+        password: { type: 'string', minLength: 6 },
+        firstName: { type: 'string', minLength: 1 },
+        lastName: { type: 'string', minLength: 1 }
+    },
+    required: ['email', 'password', 'firstName', 'lastName'],
+    additionalProperties: false
+};
+
+const signUpChallengeSchema = {
+    type: 'object',
+    properties: {
+        continuationToken: { type: 'string', minLength: 10 }
+    },
+    required: ['continuationToken'],
+    additionalProperties: false
+};
+
+const signUpContinueSchema = {
+    type: 'object',
+    properties: {
+        continuationToken: { type: 'string', minLength: 10 },
+        grantType: { type: 'string', enum: ['oob', 'password'] },
+        code: { type: 'string', minLength: 4 },
+        password: { type: 'string', minLength: 6 }
+    },
+    required: ['continuationToken', 'grantType'],
+    additionalProperties: false,
+    allOf: [
+        {
+            if: {
+                properties: {
+                    grantType: { const: 'oob' }
+                }
+            },
+            then: {
+                required: ['code']
+            }
+        },
+        {
+            if: {
+                properties: {
+                    grantType: { const: 'password' }
+                }
+            },
+            then: {
+                required: ['password']
+            }
+        }
+    ]
+};
+
+const validateSignUpStart = ajv.compile(signUpStartSchema);
+const validateSignUpChallenge = ajv.compile(signUpChallengeSchema);
+const validateSignUpContinue = ajv.compile(signUpContinueSchema);
+
 const RAW_CLIENT_ID = process.env.NATIVE_AUTH_CLIENT_ID || process.env.ENTRA_NATIVE_CLIENT_ID || '';
 const RAW_TENANT_SUBDOMAIN = process.env.NATIVE_AUTH_TENANT_SUBDOMAIN || process.env.ENTRA_TENANT_SUBDOMAIN || '';
 const RAW_BASE_URL = process.env.NATIVE_AUTH_BASE_URL || '';
@@ -45,6 +104,20 @@ const RESOLVED_CHALLENGE_TYPES = (() => {
         values.push('redirect');
     }
     return Array.from(new Set(values));
+})();
+
+const RESOLVED_SIGNUP_CHALLENGE_TYPES = (() => {
+    const fallback = RESOLVED_CHALLENGE_TYPES;
+    const values = (process.env.NATIVE_AUTH_SIGNUP_CHALLENGE_TYPES || process.env.NATIVE_AUTH_CHALLENGE_TYPES || 'password oob redirect')
+        .split(/[\s,]+/)
+        .filter(Boolean);
+    if (!values.includes('redirect')) {
+        values.push('redirect');
+    }
+    if (!values.includes('oob')) {
+        values.push('oob');
+    }
+    return Array.from(new Set(values.length ? values : fallback));
 })();
 
 let cachedFetch = null;
@@ -101,7 +174,8 @@ const ensureNativeConfig = () => {
         clientId: RAW_CLIENT_ID,
         baseUrl: RESOLVED_BASE_URL,
         scopes: RESOLVED_SCOPES,
-        challengeTypeString: RESOLVED_CHALLENGE_TYPES.join(' ')
+        challengeTypeString: RESOLVED_CHALLENGE_TYPES.join(' '),
+        signupChallengeTypeString: RESOLVED_SIGNUP_CHALLENGE_TYPES.join(' ')
     };
 };
 
@@ -261,6 +335,74 @@ const normalizeNativeAuthError = (error, correlationId, context) => {
     };
 };
 
+const normalizeNativeSignUpError = (error, correlationId, context) => {
+    if (!(error instanceof NativeAuthError)) {
+        context.log.error('[NativeAuth][SignUp] Unexpected error type', safeStringify({ correlationId, message: error?.message }));
+        return {
+            status: 500,
+            message: 'Registration failed due to an unexpected error.',
+            info: {
+                message: error?.message
+            }
+        };
+    }
+
+    const code = (error.code || '').toLowerCase();
+    const subError = (error.subError || '').toLowerCase();
+    const status = typeof error.status === 'number' && error.status > 0 ? error.status : undefined;
+
+    context.log.warn('[NativeAuth][SignUp] API error', safeStringify({
+        correlationId,
+        status: error.status,
+        code,
+        subError,
+        path: error.path,
+        raw: error.rawResponse ? error.rawResponse.substring(0, 400) : null
+    }));
+
+    let httpStatus = status || 500;
+    let message = 'Registration failed.';
+
+    if (code === 'user_already_exists') {
+        httpStatus = 409;
+        message = 'An account with this email already exists. Try signing in instead.';
+    } else if (code === 'invalid_email' || code === 'invalid_username') {
+        httpStatus = 400;
+        message = 'Enter a valid email address to sign up.';
+    } else if (code === 'invalid_password') {
+        httpStatus = 400;
+        message = 'The password does not meet the policy requirements.';
+    } else if (code === 'redirect') {
+        httpStatus = 400;
+        message = 'Native sign-up is not available for this account. Complete registration using the hosted Microsoft experience.';
+    } else if (code === 'invalid_grant') {
+        if (subError === 'invalid_oob_value') {
+            httpStatus = 400;
+            message = 'The verification code is invalid or expired. Request a new code and try again.';
+        } else if (subError === 'password_reset_required') {
+            httpStatus = 409;
+            message = 'Complete the password reset before signing up.';
+        } else {
+            httpStatus = 400;
+            message = 'The provided information could not be validated.';
+        }
+    } else if (code === 'throttled') {
+        httpStatus = 429;
+        message = 'Too many sign-up attempts. Please wait a moment and try again.';
+    }
+
+    return {
+        status: httpStatus,
+        message,
+        info: {
+            code: error.code,
+            subError: error.subError,
+            status: error.status,
+            path: error.path
+        }
+    };
+};
+
 const performNativePasswordSignIn = async ({ email, password, correlationId, context }) => {
     const config = ensureNativeConfig();
     const initiateData = await callNativeAuthEndpoint(
@@ -377,6 +519,113 @@ const performNativePasswordSignIn = async ({ email, password, correlationId, con
     }, correlationId);
 };
 
+const performNativeSignUpStart = async ({ email, password, firstName, lastName, correlationId, context }) => {
+    const config = ensureNativeConfig();
+
+    const attributes = JSON.stringify({
+        givenName: firstName,
+        surname: lastName
+    });
+
+    const startData = await callNativeAuthEndpoint(
+        config,
+        '/signup/v1.0/start',
+        {
+            client_id: config.clientId,
+            username: email,
+            password,
+            attributes,
+            challenge_type: config.signupChallengeTypeString
+        },
+        correlationId,
+        context
+    );
+
+    const continuationToken = startData?.continuation_token;
+
+    if (!continuationToken) {
+        throw new NativeAuthError('Native sign-up start response missing continuation token', {
+            status: 500,
+            data: startData,
+            path: '/signup/v1.0/start'
+        });
+    }
+
+    return success(200, {
+        status: 'pending_verification',
+        continuationToken,
+        challengeType: startData?.challenge_type || null,
+        challengeTargetLabel: startData?.challenge_target_label || null,
+        message: 'Check your email for a verification code to continue registration.'
+    }, correlationId);
+};
+
+const performNativeSignUpChallenge = async ({ continuationToken, correlationId, context }) => {
+    const config = ensureNativeConfig();
+
+    const challengeData = await callNativeAuthEndpoint(
+        config,
+        '/signup/v1.0/challenge',
+        {
+            client_id: config.clientId,
+            continuation_token: continuationToken,
+            challenge_type: config.signupChallengeTypeString
+        },
+        correlationId,
+        context
+    );
+
+    const updatedContinuationToken = challengeData?.continuation_token || continuationToken;
+
+    return success(200, {
+        status: 'code_sent',
+        continuationToken: updatedContinuationToken,
+        challengeType: challengeData?.challenge_type || null,
+        challengeTargetLabel: challengeData?.challenge_target_label || null,
+        message: 'Verification code sent. Enter the code to continue.'
+    }, correlationId);
+};
+
+const performNativeSignUpContinue = async ({ continuationToken, grantType, code, password, correlationId, context }) => {
+    const config = ensureNativeConfig();
+    const payload = {
+        client_id: config.clientId,
+        continuation_token: continuationToken,
+        grant_type: grantType
+    };
+
+    if (grantType === 'oob') {
+        payload.oob = code;
+    }
+
+    if (grantType === 'password') {
+        payload.password = password;
+    }
+
+    const continueData = await callNativeAuthEndpoint(
+        config,
+        '/signup/v1.0/continue',
+        payload,
+        correlationId,
+        context
+    );
+
+    if (grantType === 'oob') {
+        return success(200, {
+            status: 'verify_password',
+            continuationToken: continueData?.continuation_token || continuationToken,
+            challengeType: continueData?.challenge_type || null,
+            message: 'Code verified. Confirm your password to finish sign-up.'
+        }, correlationId);
+    }
+
+    return success(201, {
+        status: 'completed',
+        message: 'Registration successful. You can now sign in with your password.',
+        continuationToken: continueData?.continuation_token || null
+    }, correlationId);
+};
+
 app.http('NativeAuthHealth', {
     route: 'auth/health',
     methods: ['GET'],
@@ -394,6 +643,113 @@ app.http('NativeAuthHealth', {
         } catch (error) {
             const details = error instanceof NativeAuthError ? { message: error.message } : undefined;
             return failure(500, 'Native auth service is misconfigured', correlationId, details);
+        }
+    }
+});
+
+app.http('NativeSignUpStart', {
+    route: 'auth/signup/start',
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (error) {
+            context.log.warn('[NativeAuth][SignUpStart] Invalid JSON payload', safeStringify({ correlationId, message: error?.message }));
+            return failure(400, 'Invalid JSON payload', correlationId);
+        }
+
+        if (!validateSignUpStart(body)) {
+            context.log.warn('[NativeAuth][SignUpStart] Payload validation failed', safeStringify({ correlationId, errors: validateSignUpStart.errors }));
+            return failure(400, 'First name, last name, email, and password are required.', correlationId, validateSignUpStart.errors);
+        }
+
+        try {
+            return await performNativeSignUpStart({
+                email: String(body.email).trim(),
+                password: String(body.password),
+                firstName: String(body.firstName).trim(),
+                lastName: String(body.lastName).trim(),
+                correlationId,
+                context
+            });
+        } catch (error) {
+            const normalized = normalizeNativeSignUpError(error, correlationId, context);
+            return failure(normalized.status, normalized.message, correlationId, normalized.info);
+        }
+    }
+});
+
+app.http('NativeSignUpChallenge', {
+    route: 'auth/signup/challenge',
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (error) {
+            context.log.warn('[NativeAuth][SignUpChallenge] Invalid JSON payload', safeStringify({ correlationId, message: error?.message }));
+            return failure(400, 'Invalid JSON payload', correlationId);
+        }
+
+        if (!validateSignUpChallenge(body)) {
+            context.log.warn('[NativeAuth][SignUpChallenge] Payload validation failed', safeStringify({ correlationId, errors: validateSignUpChallenge.errors }));
+            return failure(400, 'A continuation token is required.', correlationId, validateSignUpChallenge.errors);
+        }
+
+        try {
+            return await performNativeSignUpChallenge({
+                continuationToken: String(body.continuationToken),
+                correlationId,
+                context
+            });
+        } catch (error) {
+            const normalized = normalizeNativeSignUpError(error, correlationId, context);
+            return failure(normalized.status, normalized.message, correlationId, normalized.info);
+        }
+    }
+});
+
+app.http('NativeSignUpContinue', {
+    route: 'auth/signup/continue',
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (error) {
+            context.log.warn('[NativeAuth][SignUpContinue] Invalid JSON payload', safeStringify({ correlationId, message: error?.message }));
+            return failure(400, 'Invalid JSON payload', correlationId);
+        }
+
+        if (!validateSignUpContinue(body)) {
+            context.log.warn('[NativeAuth][SignUpContinue] Payload validation failed', safeStringify({ correlationId, errors: validateSignUpContinue.errors }));
+            return failure(400, 'Continuation token and grant type are required.', correlationId, validateSignUpContinue.errors);
+        }
+
+        const grantType = String(body.grantType).toLowerCase();
+
+        try {
+            return await performNativeSignUpContinue({
+                continuationToken: String(body.continuationToken),
+                grantType,
+                code: grantType === 'oob' ? String(body.code) : undefined,
+                password: grantType === 'password' ? String(body.password) : undefined,
+                correlationId,
+                context
+            });
+        } catch (error) {
+            const normalized = normalizeNativeSignUpError(error, correlationId, context);
+            return failure(normalized.status, normalized.message, correlationId, normalized.info);
         }
     }
 });

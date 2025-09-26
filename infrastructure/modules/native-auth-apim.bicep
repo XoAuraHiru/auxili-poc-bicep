@@ -45,6 +45,39 @@ resource passwordSignInOperation 'Microsoft.ApiManagement/service/apis/operation
   }
 }
 
+resource signupStartOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'signup-start'
+  parent: nativeAuthApi
+  properties: {
+    displayName: 'Start Sign Up'
+    method: 'POST'
+    urlTemplate: '/signup/start'
+    description: 'Begins the native sign-up flow and issues a verification challenge.'
+  }
+}
+
+resource signupChallengeOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'signup-challenge'
+  parent: nativeAuthApi
+  properties: {
+    displayName: 'Send Sign Up Challenge'
+    method: 'POST'
+    urlTemplate: '/signup/challenge'
+    description: 'Sends the verification challenge to the user (for example, email OTP).'
+  }
+}
+
+resource signupContinueOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'signup-continue'
+  parent: nativeAuthApi
+  properties: {
+    displayName: 'Continue Sign Up'
+    method: 'POST'
+    urlTemplate: '/signup/continue'
+    description: 'Completes the native sign-up verification steps.'
+  }
+}
+
 resource healthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'native-auth-health'
   parent: nativeAuthApi

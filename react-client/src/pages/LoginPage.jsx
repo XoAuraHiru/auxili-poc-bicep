@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay.jsx";
 import {
   getProfile,
@@ -160,6 +160,10 @@ function LoginPage() {
             Sign in with Microsoft
           </button>
         </div>
+
+        <p className="muted">
+          Need an account? <Link to="/auth/signup">Create one now</Link>.
+        </p>
 
         {passwordLoginEnabled && (
           <>
