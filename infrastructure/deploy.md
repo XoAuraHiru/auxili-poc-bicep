@@ -17,3 +17,32 @@ az functionapp config appsettings set `
              NATIVE_AUTH_CLIENT_ID=c54e3f69-ee17-44c4-b044-018f629a6bf5 `
              NATIVE_AUTH_TENANT_SUBDOMAIN=auxilian `
              NATIVE_AUTH_SCOPES="openid profile email offline_access"
+
+
+
+bicep build "infrastructure/native-auth/main.bicep"
+
+New-AzResourceGroupDeployment `
+  -ResourceGroupName <rg-name> `
+  -TemplateFile "infrastructure/native-auth/main.bicep" `
+  -TemplateParameterFile "infrastructure/native-auth/parameters/dev.parameters.json"
+
+
+az group create -n hirun-auxili-poc -l "Southeast Asia"
+
+az deployment group create `
+  -g hirun-auxili-poc `
+  -f infrastructure/native-auth/main.bicep `
+  -p @infrastructure/native-auth/parameters/dev.parameters.json
+
+
+cd "native-auth-function-app";
+func azure functionapp publish func-auxili-nat-dev-oy7oll;
+
+az functionapp config appsettings set `
+  --name func-auxili-nat-dev-oy7oll `
+  --resource-group hirun-auxili-poc `
+  --settings `
+    NATIVE_AUTH_CLIENT_ID=c54e3f69-ee17-44c4-b044-018f629a6bf5 `
+    NATIVE_AUTH_TENANT_SUBDOMAIN=auxilian `
+    NATIVE_AUTH_SCOPES="openid profile email offline_access"

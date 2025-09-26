@@ -17,7 +17,6 @@
         "node-fetch": "^3.3.2"
     },
     "devDependencies": {
-        "azure-functions-core-tools": "^4.0.5455",
         "@types/node": "18.x"
     }
 }
