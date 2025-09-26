@@ -78,6 +78,28 @@ resource signupContinueOperation 'Microsoft.ApiManagement/service/apis/operation
   }
 }
 
+resource passwordResetStartOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'password-reset-start'
+  parent: nativeAuthApi
+  properties: {
+    displayName: 'Start Password Reset'
+    method: 'POST'
+    urlTemplate: '/password/reset/start'
+    description: 'Begins the password reset flow and sends a verification challenge.'
+  }
+}
+
+resource passwordResetContinueOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'password-reset-continue'
+  parent: nativeAuthApi
+  properties: {
+    displayName: 'Continue Password Reset'
+    method: 'POST'
+    urlTemplate: '/password/reset/continue'
+    description: 'Completes the password reset verification and updates the password.'
+  }
+}
+
 resource healthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
   name: 'native-auth-health'
   parent: nativeAuthApi

@@ -96,9 +96,55 @@ const signUpContinueSchema = {
     ]
 };
 
+// Password reset schemas
+const passwordResetStartSchema = {
+    type: 'object',
+    properties: {
+        username: { type: 'string', minLength: 3 }
+    },
+    required: ['username'],
+    additionalProperties: false
+};
+
+const passwordResetContinueSchema = {
+    type: 'object',
+    properties: {
+        continuationToken: { type: 'string', minLength: 10 },
+        grantType: { type: 'string', enum: ['oob', 'password'] },
+        code: { type: 'string', minLength: 4 },
+        newPassword: { type: 'string', minLength: 6 }
+    },
+    required: ['continuationToken', 'grantType'],
+    additionalProperties: false,
+    allOf: [
+        {
+            if: {
+                properties: {
+                    grantType: { const: 'oob' }
+                }
+            },
+            then: {
+                required: ['code']
+            }
+        },
+        {
+            if: {
+                properties: {
+                    grantType: { const: 'password' }
+                }
+            },
+            then: {
+                required: ['newPassword']
+            }
+        }
+    ]
+};
+
 const validateSignUpStart = ajv.compile(signUpStartSchema);
 const validateSignUpChallenge = ajv.compile(signUpChallengeSchema);
 const validateSignUpContinue = ajv.compile(signUpContinueSchema);
+const validatePasswordResetStart = ajv.compile(passwordResetStartSchema);
+const validatePasswordResetContinue = ajv.compile(passwordResetContinueSchema);
 
 const coalesce = (...values) => {
     for (const value of values) {
@@ -367,6 +413,56 @@ const normalizeSignUpContinuePayload = (body) => {
     const passwordValue = findValue('password', 'newPassword', 'new_password');
     if (passwordValue !== undefined) {
         normalized.password = String(passwordValue);
+    }
+
+    return normalized;
+};
+
+const normalizePasswordResetContinuePayload = (body) => {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return body;
+    }
+
+    // Start with a copy of the original body to preserve existing camelCase properties
+    const normalized = { ...body };
+
+    // Helper to find value from multiple possible keys (case-insensitive)
+    const findValue = (...keys) => {
+        for (const key of keys) {
+            if (body[key] !== undefined && body[key] !== null && body[key] !== '') {
+                return body[key];
+            }
+            // Try lowercase version
+            const lowerKey = typeof key === 'string' ? key.toLowerCase() : key;
+            if (body[lowerKey] !== undefined && body[lowerKey] !== null && body[lowerKey] !== '') {
+                return body[lowerKey];
+            }
+        }
+        return undefined;
+    };
+
+    // Normalize continuationToken (keep original if exists, otherwise check aliases)
+    const continuationToken = findValue('continuationToken', 'continuation_token', 'continuationtoken', 'continuation');
+    if (continuationToken !== undefined) {
+        normalized.continuationToken = String(continuationToken).trim();
+    }
+
+    // Normalize grantType (keep original if exists, otherwise check aliases)
+    const grantType = findValue('grantType', 'grant_type', 'grant', 'type');
+    if (grantType !== undefined) {
+        normalized.grantType = String(grantType).trim().toLowerCase();
+    }
+
+    // Normalize code (keep original if exists, otherwise check aliases)
+    const codeValue = findValue('code', 'verificationCode', 'verification_code', 'otp', 'oob', 'oneTimeCode', 'one_time_code');
+    if (codeValue !== undefined) {
+        normalized.code = String(codeValue).trim();
+    }
+
+    // Normalize newPassword (keep original if exists, otherwise check aliases)
+    const newPasswordValue = findValue('newPassword', 'new_password', 'password');
+    if (newPasswordValue !== undefined) {
+        normalized.newPassword = String(newPasswordValue);
     }
 
     return normalized;
@@ -866,7 +962,7 @@ const performNativeSignUpContinue = async ({ continuationToken, grantType, code,
     };
 
     if (grantType === 'oob') {
-        payload.code = code;
+        payload.oob = code;
     }
 
     if (grantType === 'password') {
@@ -893,6 +989,83 @@ const performNativeSignUpContinue = async ({ continuationToken, grantType, code,
     return success(201, {
         status: 'completed',
         message: 'Registration successful. You can now sign in with your password.',
+        continuationToken: continueData?.continuation_token || null
+    }, correlationId);
+};
+
+// Password reset functions
+const performPasswordResetStart = async ({ username, correlationId, context }) => {
+    const config = ensureNativeConfig();
+
+    const payload = {
+        client_id: config.clientId,
+        username,
+        challenge_type: config.signupChallengeTypeString
+    };
+
+    const resetData = await callNativeAuthEndpoint(
+        config,
+        '/resetpassword/v1.0/start',
+        payload,
+        correlationId,
+        context
+    );
+
+    const continuationToken = resetData?.continuation_token;
+
+    if (!continuationToken) {
+        throw new NativeAuthError('Password reset start response missing continuation token', {
+            status: 500,
+            data: resetData,
+            path: '/resetpassword/v1.0/start'
+        });
+    }
+
+    return success(200, {
+        status: 'pending_verification',
+        continuationToken,
+        challengeType: resetData?.challenge_type || null,
+        challengeTargetLabel: resetData?.challenge_target_label || null,
+        message: 'Check your email for a verification code to reset your password.'
+    }, correlationId);
+};
+
+const performPasswordResetContinue = async ({ continuationToken, grantType, code, newPassword, correlationId, context }) => {
+    const config = ensureNativeConfig();
+    const payload = {
+        client_id: config.clientId,
+        continuation_token: continuationToken,
+        grant_type: grantType
+    };
+
+    if (grantType === 'oob') {
+        payload.oob = code;
+    }
+
+    if (grantType === 'password') {
+        payload.new_password = newPassword;
+    }
+
+    const continueData = await callNativeAuthEndpoint(
+        config,
+        '/resetpassword/v1.0/continue',
+        payload,
+        correlationId,
+        context
+    );
+
+    if (grantType === 'oob') {
+        return success(200, {
+            status: 'verify_password',
+            continuationToken: continueData?.continuation_token || continuationToken,
+            challengeType: continueData?.challenge_type || null,
+            message: 'Code verified. Enter your new password to complete the reset.'
+        }, correlationId);
+    }
+
+    return success(200, {
+        status: 'completed',
+        message: 'Password reset successful. You can now sign in with your new password.',
         continuationToken: continueData?.continuation_token || null
     }, correlationId);
 };
@@ -1057,6 +1230,77 @@ app.http('NativePasswordSignIn', {
             return await performNativePasswordSignIn({
                 email: String(body.email).trim(),
                 password: String(body.password),
+                correlationId,
+                context
+            });
+        } catch (error) {
+            const normalized = normalizeNativeAuthError(error, correlationId, context);
+            return failure(normalized.status, normalized.message, correlationId, normalized.info);
+        }
+    }
+});
+
+// Password reset endpoints
+app.http('NativePasswordResetStart', {
+    route: 'auth/password/reset/start',
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (error) {
+            return failure(400, 'Invalid JSON payload', correlationId);
+        }
+
+        if (!validatePasswordResetStart(body)) {
+            return failure(400, 'Username is required.', correlationId, validatePasswordResetStart.errors);
+        }
+
+        try {
+            return await performPasswordResetStart({
+                username: String(body.username).trim(),
+                correlationId,
+                context
+            });
+        } catch (error) {
+            const normalized = normalizeNativeAuthError(error, correlationId, context);
+            return failure(normalized.status, normalized.message, correlationId, normalized.info);
+        }
+    }
+});
+
+app.http('NativePasswordResetContinue', {
+    route: 'auth/password/reset/continue',
+    methods: ['POST'],
+    authLevel: 'anonymous',
+    handler: async (request, context) => {
+        const correlationId = withCorrelation(context, request);
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (error) {
+            return failure(400, 'Invalid JSON payload', correlationId);
+        }
+
+        const normalizedBody = normalizePasswordResetContinuePayload(body);
+
+        // Create a deep copy for validation to prevent AJV from modifying the original object
+        const payloadForValidation = JSON.parse(JSON.stringify(normalizedBody));
+
+        if (!validatePasswordResetContinue(payloadForValidation)) {
+            return failure(400, 'Continuation token and grant type are required.', correlationId, validatePasswordResetContinue.errors);
+        }
+
+        try {
+            return await performPasswordResetContinue({
+                continuationToken: normalizedBody.continuationToken,
+                grantType: normalizedBody.grantType,
+                code: normalizedBody.code,
+                newPassword: normalizedBody.newPassword,
                 correlationId,
                 context
             });
