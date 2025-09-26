@@ -24,7 +24,30 @@ const signUpStartSchema = {
         email: { type: 'string', format: 'email' },
         password: { type: 'string', minLength: 6 },
         firstName: { type: 'string', minLength: 1 },
-        lastName: { type: 'string', minLength: 1 }
+        lastName: { type: 'string', minLength: 1 },
+        attributes: {
+            type: 'object',
+            minProperties: 1,
+            propertyNames: {
+                type: 'string',
+                minLength: 1
+            },
+            patternProperties: {
+                '^.+$': {
+                    anyOf: [
+                        { type: 'string', minLength: 1 },
+                        {
+                            type: 'array',
+                            minItems: 1,
+                            items: { type: 'string', minLength: 1 }
+                        },
+                        { type: 'number' },
+                        { type: 'boolean' }
+                    ]
+                }
+            },
+            additionalProperties: false
+        }
     },
     required: ['email', 'password', 'firstName', 'lastName'],
     additionalProperties: false
@@ -77,6 +100,15 @@ const validateSignUpStart = ajv.compile(signUpStartSchema);
 const validateSignUpChallenge = ajv.compile(signUpChallengeSchema);
 const validateSignUpContinue = ajv.compile(signUpContinueSchema);
 
+const coalesce = (...values) => {
+    for (const value of values) {
+        if (value !== undefined && value !== null && value !== '') {
+            return value;
+        }
+    }
+    return undefined;
+};
+
 const RAW_CLIENT_ID = process.env.NATIVE_AUTH_CLIENT_ID || process.env.ENTRA_NATIVE_CLIENT_ID || '';
 const RAW_TENANT_SUBDOMAIN = process.env.NATIVE_AUTH_TENANT_SUBDOMAIN || process.env.ENTRA_TENANT_SUBDOMAIN || '';
 const RAW_BASE_URL = process.env.NATIVE_AUTH_BASE_URL || '';
@@ -96,29 +128,245 @@ const RESOLVED_SCOPES = (process.env.NATIVE_AUTH_SCOPES || 'openid profile email
     .filter(Boolean)
     .join(' ');
 
-const RESOLVED_CHALLENGE_TYPES = (() => {
-    const values = (process.env.NATIVE_AUTH_CHALLENGE_TYPES || 'password redirect')
-        .split(/[\s,]+/)
-        .filter(Boolean);
-    if (!values.includes('redirect')) {
-        values.push('redirect');
+const splitChallengeTypes = (value) => (value || '')
+    .split(/[\s,]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+
+const resolveChallengeTypeString = (rawValue, fallbackTokens, requiredTokens = [], preferredOrder = []) => {
+    const tokens = splitChallengeTypes(rawValue);
+    const baseTokens = tokens.length ? tokens : Array.from(fallbackTokens || []);
+    const tokenSet = new Set(baseTokens.map((token) => token.toLowerCase()));
+
+    requiredTokens.forEach((token) => {
+        if (token) {
+            tokenSet.add(token.toLowerCase());
+        }
+    });
+
+    const ordered = [];
+    preferredOrder.forEach((token) => {
+        const normalized = token.toLowerCase();
+        if (tokenSet.has(normalized)) {
+            ordered.push(normalized);
+            tokenSet.delete(normalized);
+        }
+    });
+
+    tokenSet.forEach((token) => {
+        if (!ordered.includes(token)) {
+            ordered.push(token);
+        }
+    });
+
+    return ordered.join(' ');
+};
+
+const DEFAULT_SIGNIN_CHALLENGE_TYPES = ['password', 'redirect'];
+const DEFAULT_SIGNUP_CHALLENGE_TYPES = ['oob', 'password', 'redirect'];
+
+const RESOLVED_CHALLENGE_TYPE_STRING = resolveChallengeTypeString(
+    process.env.NATIVE_AUTH_CHALLENGE_TYPES,
+    DEFAULT_SIGNIN_CHALLENGE_TYPES,
+    ['redirect'],
+    ['password', 'oob', 'redirect']
+);
+
+const RESOLVED_SIGNUP_CHALLENGE_TYPE_STRING = resolveChallengeTypeString(
+    process.env.NATIVE_AUTH_SIGNUP_CHALLENGE_TYPES || process.env.NATIVE_AUTH_CHALLENGE_TYPES,
+    DEFAULT_SIGNUP_CHALLENGE_TYPES,
+    ['redirect', 'oob'],
+    ['oob', 'password', 'redirect', 'sms', 'email']
+);
+
+const DEFAULT_SIGNUP_ATTRIBUTE_MAP = {
+    firstName: 'givenName',
+    lastName: 'surname',
+    displayName: 'displayName'
+};
+
+const parseJsonObjectEnv = (raw, envName) => {
+    if (!raw) {
+        return null;
     }
-    return Array.from(new Set(values));
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            console.warn(`[NativeAuth] ${envName} must be a JSON object value.`);
+            return null;
+        }
+        return parsed;
+    } catch (error) {
+        console.warn(`[NativeAuth] Failed to parse ${envName}: ${error?.message}`);
+        return null;
+    }
+};
+
+const normalizeAttributeValue = (value) => {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (Array.isArray(value)) {
+        const normalizedItems = value
+            .map((item) => normalizeAttributeValue(item))
+            .filter(Boolean);
+        if (!normalizedItems.length) {
+            return null;
+        }
+        return normalizedItems.join(',');
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+    }
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        return `${value}`;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed.length ? trimmed : null;
+    }
+    return null;
+};
+
+const SIGNUP_ATTRIBUTE_MAP = (() => {
+    const overrides = parseJsonObjectEnv(process.env.NATIVE_AUTH_SIGNUP_ATTRIBUTE_MAP, 'NATIVE_AUTH_SIGNUP_ATTRIBUTE_MAP');
+    const base = { ...DEFAULT_SIGNUP_ATTRIBUTE_MAP };
+    if (!overrides) {
+        return base;
+    }
+    Object.entries(overrides).forEach(([sourceKey, targetKey]) => {
+        if (typeof targetKey === 'string' && targetKey.trim()) {
+            base[String(sourceKey)] = targetKey.trim();
+        }
+    });
+    return base;
 })();
 
-const RESOLVED_SIGNUP_CHALLENGE_TYPES = (() => {
-    const fallback = RESOLVED_CHALLENGE_TYPES;
-    const values = (process.env.NATIVE_AUTH_SIGNUP_CHALLENGE_TYPES || process.env.NATIVE_AUTH_CHALLENGE_TYPES || 'password oob redirect')
-        .split(/[\s,]+/)
-        .filter(Boolean);
-    if (!values.includes('redirect')) {
-        values.push('redirect');
+const SIGNUP_STATIC_ATTRIBUTES = (() => {
+    const configured = parseJsonObjectEnv(process.env.NATIVE_AUTH_SIGNUP_STATIC_ATTRIBUTES, 'NATIVE_AUTH_SIGNUP_STATIC_ATTRIBUTES');
+    if (!configured) {
+        return {};
     }
-    if (!values.includes('oob')) {
-        values.push('oob');
-    }
-    return Array.from(new Set(values.length ? values : fallback));
+    const normalized = {};
+    Object.entries(configured).forEach(([attributeName, attributeValue]) => {
+        const normalizedKey = typeof attributeName === 'string' ? attributeName.trim() : '';
+        const normalizedValue = normalizeAttributeValue(attributeValue);
+        if (!normalizedKey || !normalizedValue) {
+            return;
+        }
+        if (normalizedKey.toLowerCase() === 'username' || normalizedKey.toLowerCase() === 'email') {
+            return;
+        }
+        normalized[normalizedKey] = normalizedValue;
+    });
+    return normalized;
 })();
+
+const buildSignUpAttributesPayload = ({ firstName, lastName, extraAttributes }) => {
+    const safeFirstName = typeof firstName === 'string' ? firstName.trim() : '';
+    const safeLastName = typeof lastName === 'string' ? lastName.trim() : '';
+    const valueBag = {
+        firstName: safeFirstName,
+        lastName: safeLastName,
+        displayName: `${safeFirstName} ${safeLastName}`.replace(/\s+/g, ' ').trim()
+    };
+
+    const payload = {};
+
+    Object.entries(SIGNUP_ATTRIBUTE_MAP).forEach(([sourceKey, attributeName]) => {
+        if (!attributeName || typeof attributeName !== 'string') {
+            return;
+        }
+        const normalizedKey = attributeName.trim();
+        if (!normalizedKey || normalizedKey.toLowerCase() === 'username' || normalizedKey.toLowerCase() === 'email') {
+            return;
+        }
+        const value = normalizeAttributeValue(valueBag[sourceKey]);
+        if (value) {
+            payload[normalizedKey] = value;
+        }
+    });
+
+    if (extraAttributes && typeof extraAttributes === 'object' && !Array.isArray(extraAttributes)) {
+        Object.entries(extraAttributes).forEach(([attributeName, attributeValue]) => {
+            const normalizedKey = typeof attributeName === 'string' ? attributeName.trim() : '';
+            if (!normalizedKey || normalizedKey.toLowerCase() === 'username' || normalizedKey.toLowerCase() === 'email') {
+                return;
+            }
+            const normalizedValue = normalizeAttributeValue(attributeValue);
+            if (normalizedValue) {
+                payload[normalizedKey] = normalizedValue;
+            }
+        });
+    }
+
+    Object.entries(SIGNUP_STATIC_ATTRIBUTES).forEach(([attributeName, attributeValue]) => {
+        if (attributeValue && attributeName) {
+            payload[attributeName] = attributeValue;
+        }
+    });
+
+    if (!Object.keys(payload).length) {
+        return null;
+    }
+
+    return JSON.stringify(payload);
+};
+
+const normalizeSignUpContinuePayload = (body) => {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return body;
+    }
+
+    const normalized = {};
+
+    const continuationToken = coalesce(
+        body.continuationToken,
+        body.continuation_token,
+        body.continuationtoken,
+        body.continuation
+    );
+    if (continuationToken !== undefined) {
+        normalized.continuationToken = String(continuationToken).trim();
+    }
+
+    const grantType = coalesce(
+        body.grantType,
+        body.grant_type,
+        body.grant,
+        body.type
+    );
+    if (grantType !== undefined) {
+        normalized.grantType = String(grantType).trim().toLowerCase();
+    }
+
+    const codeValue = coalesce(
+        body.code,
+        body.verificationCode,
+        body.verification_code,
+        body.otp,
+        body.oob,
+        body.oneTimeCode,
+        body.one_time_code
+    );
+    if (codeValue !== undefined) {
+        normalized.code = String(codeValue).trim();
+    }
+
+    const passwordValue = coalesce(
+        body.password,
+        body.newPassword,
+        body.new_password
+    );
+    if (passwordValue !== undefined) {
+        normalized.password = String(passwordValue);
+    }
+
+    return normalized;
+};
 
 let cachedFetch = null;
 const resolveFetch = async () => {
@@ -174,8 +422,8 @@ const ensureNativeConfig = () => {
         clientId: RAW_CLIENT_ID,
         baseUrl: RESOLVED_BASE_URL,
         scopes: RESOLVED_SCOPES,
-        challengeTypeString: RESOLVED_CHALLENGE_TYPES.join(' '),
-        signupChallengeTypeString: RESOLVED_SIGNUP_CHALLENGE_TYPES.join(' ')
+        challengeTypeString: RESOLVED_CHALLENGE_TYPE_STRING,
+        signupChallengeTypeString: RESOLVED_SIGNUP_CHALLENGE_TYPE_STRING
     };
 };
 
@@ -350,6 +598,9 @@ const normalizeNativeSignUpError = (error, correlationId, context) => {
     const code = (error.code || '').toLowerCase();
     const subError = (error.subError || '').toLowerCase();
     const status = typeof error.status === 'number' && error.status > 0 ? error.status : undefined;
+    const data = error.data && typeof error.data === 'object' ? error.data : null;
+    const invalidAttributes = Array.isArray(data?.invalid_attributes) ? data.invalid_attributes : undefined;
+    const requiredAttributes = Array.isArray(data?.required_attributes) ? data.required_attributes : undefined;
 
     context.log.warn('[NativeAuth][SignUp] API error', safeStringify({
         correlationId,
@@ -372,6 +623,9 @@ const normalizeNativeSignUpError = (error, correlationId, context) => {
     } else if (code === 'invalid_password') {
         httpStatus = 400;
         message = 'The password does not meet the policy requirements.';
+    } else if (code === 'attributes_required') {
+        httpStatus = 400;
+        message = 'Additional profile information is required to complete registration.';
     } else if (code === 'redirect') {
         httpStatus = 400;
         message = 'Native sign-up is not available for this account. Complete registration using the hosted Microsoft experience.';
@@ -379,6 +633,9 @@ const normalizeNativeSignUpError = (error, correlationId, context) => {
         if (subError === 'invalid_oob_value') {
             httpStatus = 400;
             message = 'The verification code is invalid or expired. Request a new code and try again.';
+        } else if (subError === 'attribute_validation_failed') {
+            httpStatus = 400;
+            message = 'One or more profile fields need attention before we can finish creating your account.';
         } else if (subError === 'password_reset_required') {
             httpStatus = 409;
             message = 'Complete the password reset before signing up.';
@@ -398,7 +655,11 @@ const normalizeNativeSignUpError = (error, correlationId, context) => {
             code: error.code,
             subError: error.subError,
             status: error.status,
-            path: error.path
+            path: error.path,
+            requestParams: error.params,
+            invalidAttributes,
+            requiredAttributes,
+            errorDescription: data?.error_description
         }
     };
 };
@@ -519,24 +780,30 @@ const performNativePasswordSignIn = async ({ email, password, correlationId, con
     }, correlationId);
 };
 
-const performNativeSignUpStart = async ({ email, password, firstName, lastName, correlationId, context }) => {
+const performNativeSignUpStart = async ({ email, password, firstName, lastName, additionalAttributes, correlationId, context }) => {
     const config = ensureNativeConfig();
 
-    const attributes = JSON.stringify({
-        givenName: firstName,
-        surname: lastName
+    const attributes = buildSignUpAttributesPayload({
+        firstName,
+        lastName,
+        extraAttributes: additionalAttributes
     });
+
+    const params = {
+        client_id: config.clientId,
+        username: email,
+        password,
+        challenge_type: config.signupChallengeTypeString
+    };
+
+    if (attributes) {
+        params.attributes = attributes;
+    }
 
     const startData = await callNativeAuthEndpoint(
         config,
         '/signup/v1.0/start',
-        {
-            client_id: config.clientId,
-            username: email,
-            password,
-            attributes,
-            challenge_type: config.signupChallengeTypeString
-        },
+        params,
         correlationId,
         context
     );
@@ -673,6 +940,7 @@ app.http('NativeSignUpStart', {
                 password: String(body.password),
                 firstName: String(body.firstName).trim(),
                 lastName: String(body.lastName).trim(),
+                additionalAttributes: body.attributes,
                 correlationId,
                 context
             });
@@ -731,19 +999,21 @@ app.http('NativeSignUpContinue', {
             return failure(400, 'Invalid JSON payload', correlationId);
         }
 
-        if (!validateSignUpContinue(body)) {
+        const normalizedBody = normalizeSignUpContinuePayload(body);
+
+        if (!validateSignUpContinue(normalizedBody)) {
             context.log.warn('[NativeAuth][SignUpContinue] Payload validation failed', safeStringify({ correlationId, errors: validateSignUpContinue.errors }));
             return failure(400, 'Continuation token and grant type are required.', correlationId, validateSignUpContinue.errors);
         }
 
-        const grantType = String(body.grantType).toLowerCase();
+        const grantType = String(normalizedBody.grantType).toLowerCase();
 
         try {
             return await performNativeSignUpContinue({
-                continuationToken: String(body.continuationToken),
+                continuationToken: String(normalizedBody.continuationToken),
                 grantType,
-                code: grantType === 'oob' ? String(body.code) : undefined,
-                password: grantType === 'password' ? String(body.password) : undefined,
+                code: grantType === 'oob' ? String(normalizedBody.code) : undefined,
+                password: grantType === 'password' ? String(normalizedBody.password) : undefined,
                 correlationId,
                 context
             });
