@@ -31,7 +31,7 @@ New-AzResourceGroupDeployment `
 az group create -n hirun-auxili-poc -l "Southeast Asia"
 
 az deployment group create `
-  -g hirun-auxili-poc-v2 `
+  -g hirun-auxili-poc `
   -f infrastructure/native-auth/main.bicep `
   -p @infrastructure/native-auth/parameters/dev.parameters.json
 

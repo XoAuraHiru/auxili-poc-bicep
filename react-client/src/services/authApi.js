@@ -65,7 +65,7 @@ export function signupStart({ firstName, lastName, email, password, signal } = {
     }
 
     const payload = {
-        username: String(email).trim().toLowerCase(), // Native auth expects 'username' field
+        email: String(email).trim().toLowerCase(), // Backend schema expects 'email' field
         password: String(password),
         firstName: String(firstName).trim(),
         lastName: String(lastName).trim()
