@@ -44,5 +44,5 @@ az functionapp config appsettings set `
   --resource-group hirun-auxili-poc `
   --settings `
     NATIVE_AUTH_CLIENT_ID=c54e3f69-ee17-44c4-b044-018f629a6bf5 `
-    NATIVE_AUTH_TENANT_SUBDOMAIN=<tenant-subdomain> `
+    NATIVE_AUTH_TENANT_SUBDOMAIN=auxilian `
     NATIVE_AUTH_SCOPES="openid profile email offline_access"
