@@ -4,6 +4,7 @@ import Layout from "./components/Layout.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import SignupPage from "./pages/SignupPage.jsx";
+import PasswordResetPage from "./pages/PasswordResetPage.jsx";
 import CallbackPage from "./pages/CallbackPage.jsx";
 import "./App.css";
 
@@ -21,6 +22,7 @@ function App() {
         />
         <Route path="/auth/login" element={<LoginPage />} />
         <Route path="/auth/signup" element={<SignupPage />} />
+        <Route path="/auth/reset-password" element={<PasswordResetPage />} />
         <Route path="/auth/callback" element={<CallbackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

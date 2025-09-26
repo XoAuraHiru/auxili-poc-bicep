@@ -2,21 +2,19 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay.jsx";
 import {
-  signupStart,
-  signupVerifyCode,
-  signupComplete,
+  passwordResetStart,
+  passwordResetVerifyCode,
+  passwordResetComplete,
 } from "../services/authApi.js";
 
-function SignupPage() {
+function PasswordResetPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
+    username: "",
+    newPassword: "",
     confirmPassword: "",
   });
-  const [step, setStep] = useState("form");
+  const [step, setStep] = useState("start");
   const [otpCode, setOtpCode] = useState("");
   const [continuationToken, setContinuationToken] = useState(null);
   const [challengeTargetLabel, setChallengeTargetLabel] = useState(null);
@@ -35,13 +33,8 @@ function SignupPage() {
   const handleStartSubmit = async (event) => {
     event.preventDefault();
 
-    if (!form.firstName || !form.lastName || !form.email || !form.password) {
-      setError("All fields are required.");
-      return;
-    }
-
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match.");
+    if (!form.username) {
+      setError("Email address is required.");
       return;
     }
 
@@ -50,30 +43,26 @@ function SignupPage() {
     setCorrelationId(null);
 
     try {
-      // Start the signup process with username, password, and attributes
-      const startResponse = await signupStart({
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        password: form.password,
+      const startResponse = await passwordResetStart({
+        username: form.username,
       });
 
       // Set state from the start response
       setContinuationToken(startResponse?.continuationToken || null);
       setChallengeTargetLabel(
-        startResponse?.challengeTargetLabel || form.email
+        startResponse?.challengeTargetLabel || form.username
       );
       setCorrelationId(startResponse?.correlationId || null);
       setOtpCode("");
       setStep("otp");
     } catch (err) {
-      console.error("[SignupPage] Failed to start sign-up", err);
+      console.error("[PasswordResetPage] Failed to start password reset", err);
       // Display errorDescription if available, otherwise fall back to message
       const errorMessage =
         err?.data?.details?.errorDescription ||
         err?.data?.error ||
         err?.message ||
-        "Unable to start sign-up. Please try again.";
+        "Unable to start password reset. Please try again.";
       setError(errorMessage);
       setCorrelationId(err?.data?.correlationId ?? err?.correlationId ?? null);
     } finally {
@@ -89,13 +78,23 @@ function SignupPage() {
       return;
     }
 
+    if (!form.newPassword) {
+      setError("New password is required.");
+      return;
+    }
+
+    if (form.newPassword !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setCorrelationId(null);
 
     try {
       // First verify the OTP code
-      const verifyResponse = await signupVerifyCode({
+      const verifyResponse = await passwordResetVerifyCode({
         continuationToken,
         code: otpCode,
       });
@@ -104,15 +103,15 @@ function SignupPage() {
         setCorrelationId(verifyResponse.correlationId);
       }
 
-      // Check if we need to set password or if signup is complete
+      // Check if we need to set new password or if reset is complete
       if (verifyResponse?.status === "verify_password") {
-        // Need to set password in next step
+        // Need to set new password in next step
         const nextToken =
           verifyResponse?.continuationToken || continuationToken;
 
-        const completeResponse = await signupComplete({
+        const completeResponse = await passwordResetComplete({
           continuationToken: nextToken,
-          password: form.password,
+          newPassword: form.newPassword,
         });
 
         if (completeResponse?.correlationId) {
@@ -123,13 +122,13 @@ function SignupPage() {
       setStep("success");
       setOtpCode("");
     } catch (err) {
-      console.error("[SignupPage] Verification failed", err);
+      console.error("[PasswordResetPage] Password reset failed", err);
       // Display errorDescription if available, otherwise fall back to message
       const errorMessage =
         err?.data?.details?.errorDescription ||
         err?.data?.error ||
         err?.message ||
-        "Unable to verify the code. Please try again.";
+        "Unable to complete password reset. Please try again.";
       setError(errorMessage);
       setCorrelationId(err?.data?.correlationId ?? err?.correlationId ?? null);
     } finally {
@@ -142,87 +141,30 @@ function SignupPage() {
   };
 
   const loadingMessage =
-    step === "form"
+    step === "start"
       ? "Sending your verification code..."
-      : "Completing your registration...";
+      : "Resetting your password...";
 
   return (
     <section className="page page--auth">
       <div className="card card--centered">
-        {step === "form" && (
+        {step === "start" && (
           <>
-            <h1>Create your Auxili account</h1>
+            <h1>Reset your password</h1>
             <p className="muted">
-              Register with your email address to use native password
-              authentication. We'll send a verification code to confirm your
-              identity.
+              Enter your email address and we'll send you a verification code to
+              reset your password.
             </p>
 
             <form className="auth-form" onSubmit={handleStartSubmit}>
               <div className="form-group">
-                <label htmlFor="firstName">First name</label>
+                <label htmlFor="username">Work or school email</label>
                 <input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  autoComplete="given-name"
-                  value={form.firstName}
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="lastName">Last name</label>
-                <input
-                  id="lastName"
-                  name="lastName"
-                  type="text"
-                  autoComplete="family-name"
-                  value={form.lastName}
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="email">Work or school email</label>
-                <input
-                  id="email"
-                  name="email"
+                  id="username"
+                  name="username"
                   type="email"
                   autoComplete="email"
-                  value={form.email}
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="password">Password</label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="confirmPassword">Confirm password</label>
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  value={form.confirmPassword}
+                  value={form.username}
                   onChange={handleInputChange}
                   disabled={isLoading}
                   required
@@ -239,18 +181,18 @@ function SignupPage() {
             </form>
 
             <p className="muted">
-              Already have an account? <Link to="/auth/login">Sign in</Link>.
+              Remember your password? <Link to="/auth/login">Sign in</Link>.
             </p>
           </>
         )}
 
         {step === "otp" && (
           <>
-            <h1>Verify your email</h1>
+            <h1>Reset your password</h1>
             <p className="muted">
-              We sent a one-time code to{" "}
-              <strong>{challengeTargetLabel || form.email}</strong>. Enter the
-              code below to continue.
+              We sent a verification code to{" "}
+              <strong>{challengeTargetLabel || form.username}</strong>. Enter
+              the code and your new password below.
             </p>
 
             <form className="auth-form" onSubmit={handleOtpSubmit}>
@@ -268,28 +210,64 @@ function SignupPage() {
                 />
               </div>
 
+              <div className="form-group">
+                <label htmlFor="newPassword">New password</label>
+                <input
+                  id="newPassword"
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.newPassword}
+                  onChange={handleInputChange}
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="confirmPassword">Confirm new password</label>
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.confirmPassword}
+                  onChange={handleInputChange}
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+
               <button
                 type="submit"
                 className="btn btn--primary"
                 disabled={isLoading}
               >
-                Confirm and finish sign-up
+                Reset password
               </button>
             </form>
 
             <p className="muted">
-              Didn’t receive a code? Check your spam folder or restart the
-              sign-up process.
+              Didn't receive a code? Check your spam folder or{" "}
+              <button
+                type="button"
+                className="btn btn--link"
+                onClick={() => setStep("start")}
+                disabled={isLoading}
+              >
+                try again
+              </button>
+              .
             </p>
           </>
         )}
 
         {step === "success" && (
           <>
-            <h1>You're all set!</h1>
+            <h1>Password reset successful!</h1>
             <p className="muted">
-              Your Auxili account is ready. You can now sign in with your email
-              and password.
+              Your password has been updated. You can now sign in with your new
+              password.
             </p>
             <button
               type="button"
@@ -318,4 +296,4 @@ function SignupPage() {
   );
 }
 
-export default SignupPage;
+export default PasswordResetPage;
