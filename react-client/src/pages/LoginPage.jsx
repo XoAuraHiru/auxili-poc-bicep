@@ -28,6 +28,7 @@ function LoginPage() {
     String(
       import.meta.env.VITE_ENABLE_PASSWORD_SIGNIN ?? "true"
     ).toLowerCase() !== "false";
+  const isDevBuild = Boolean(import.meta.env.DEV);
 
   const handleSignIn = async () => {
     try {
@@ -134,35 +135,6 @@ function LoginPage() {
           for authentication.
         </p>
 
-        <div className="info-panel">
-          <h2>Environment</h2>
-          <dl>
-            <dt>API Base URL</dt>
-            <dd>
-              {getApiBaseUrl() || (
-                <span className="badge badge--warning">Not configured</span>
-              )}
-            </dd>
-            <dt>Entra client ID</dt>
-            <dd className="mono">{clientId}</dd>
-            <dt>Tenant ID</dt>
-            <dd className="mono">{tenantId}</dd>
-            <dt>APIM subscription key</dt>
-            <dd>
-              {hasSubscriptionKey ? (
-                "Configured"
-              ) : (
-                <span className="badge badge--warning">Not configured</span>
-              )}
-            </dd>
-            <dt>After sign-in</dt>
-            <dd>
-              You&apos;ll be redirected to `/auth/callback` and brought back to{" "}
-              {location.state?.from?.pathname || "the dashboard"}.
-            </dd>
-          </dl>
-        </div>
-
         <div className="actions">
           <button
             type="button"
@@ -236,6 +208,35 @@ function LoginPage() {
           </p>
         </div>
       </div>
+      {isDevBuild && (
+        <div className="dev-environment-details">
+          <p className="dev-environment-details__label">
+            Development environment
+          </p>
+          <ul>
+            <li>
+              <strong>API Base URL:</strong>{" "}
+              {getApiBaseUrl() || "(not configured)"}
+            </li>
+            <li>
+              <strong>Entra client ID:</strong>{" "}
+              <span className="mono">{clientId}</span>
+            </li>
+            <li>
+              <strong>Tenant ID:</strong>{" "}
+              <span className="mono">{tenantId}</span>
+            </li>
+            <li>
+              <strong>APIM subscription key:</strong>{" "}
+              {hasSubscriptionKey ? "Configured" : "Not configured"}
+            </li>
+            <li>
+              <strong>Post sign-in redirect:</strong>{" "}
+              {location.state?.from?.pathname || "/"}
+            </li>
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
