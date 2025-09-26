@@ -65,10 +65,10 @@ export function signupStart({ firstName, lastName, email, password, signal } = {
     }
 
     const payload = {
+        username: String(email).trim().toLowerCase(), // Native auth expects 'username' field
+        password: String(password),
         firstName: String(firstName).trim(),
-        lastName: String(lastName).trim(),
-        email: String(email).trim().toLowerCase(),
-        password: String(password)
+        lastName: String(lastName).trim()
     }
 
     return apiRequest('/auth/signup/start', {
@@ -180,5 +180,60 @@ export function getProducts(token) {
     return apiRequest('/products', {
         method: 'GET',
         token
+    })
+}
+
+// Password reset functions
+export function passwordResetStart({ username, signal } = {}) {
+    if (!username) {
+        throw new Error('Username (email) is required')
+    }
+
+    const payload = {
+        username: String(username).trim().toLowerCase()
+    }
+
+    return apiRequest('/auth/password/reset/start', {
+        method: 'POST',
+        body: payload,
+        signal
+    })
+}
+
+export function passwordResetVerifyCode({ continuationToken, code, signal } = {}) {
+    if (!continuationToken) {
+        throw new Error('Continuation token is required')
+    }
+    if (!code) {
+        throw new Error('Verification code is required')
+    }
+
+    return apiRequest('/auth/password/reset/continue', {
+        method: 'POST',
+        body: {
+            continuationToken,
+            grantType: 'oob',
+            code: String(code).trim()
+        },
+        signal
+    })
+}
+
+export function passwordResetComplete({ continuationToken, newPassword, signal } = {}) {
+    if (!continuationToken) {
+        throw new Error('Continuation token is required')
+    }
+    if (!newPassword) {
+        throw new Error('New password is required')
+    }
+
+    return apiRequest('/auth/password/reset/continue', {
+        method: 'POST',
+        body: {
+            continuationToken,
+            grantType: 'password',
+            newPassword: String(newPassword)
+        },
+        signal
     })
 }

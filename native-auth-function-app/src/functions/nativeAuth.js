@@ -3,7 +3,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { safeStringify, withCorrelation, success, failure } from '../utils/shared.js';
 
-const ajv = new Ajv({ allErrors: true, removeAdditional: 'all' });
+const ajv = new Ajv({ allErrors: true, removeAdditional: false });
 addFormats(ajv);
 
 const signInSchema = {
@@ -250,7 +250,13 @@ const SIGNUP_STATIC_ATTRIBUTES = (() => {
     if (!configured) {
         return {};
     }
-    const normalized = {};
+    const normalized = {
+        continuationToken: typeof body.continuationToken === 'string' ? body.continuationToken.trim() : body.continuationToken,
+        grantType: typeof body.grantType === 'string' ? body.grantType.trim().toLowerCase() : body.grantType,
+        code: typeof body.code === 'string' ? body.code.trim() : body.code,
+        password: typeof body.password === 'string' ? body.password : body.password
+    };
+    console.log('Normalized:', normalized);
     Object.entries(configured).forEach(([attributeName, attributeValue]) => {
         const normalizedKey = typeof attributeName === 'string' ? attributeName.trim() : '';
         const normalizedValue = normalizeAttributeValue(attributeValue);
@@ -321,46 +327,44 @@ const normalizeSignUpContinuePayload = (body) => {
         return body;
     }
 
-    const normalized = {};
+    // Start with a copy of the original body to preserve existing camelCase properties
+    const normalized = { ...body };
 
-    const continuationToken = coalesce(
-        body.continuationToken,
-        body.continuation_token,
-        body.continuationtoken,
-        body.continuation
-    );
+    // Helper to find value from multiple possible keys (case-insensitive)
+    const findValue = (...keys) => {
+        for (const key of keys) {
+            if (body[key] !== undefined && body[key] !== null && body[key] !== '') {
+                return body[key];
+            }
+            // Try lowercase version
+            const lowerKey = typeof key === 'string' ? key.toLowerCase() : key;
+            if (body[lowerKey] !== undefined && body[lowerKey] !== null && body[lowerKey] !== '') {
+                return body[lowerKey];
+            }
+        }
+        return undefined;
+    };
+
+    // Normalize continuationToken (keep original if exists, otherwise check aliases)
+    const continuationToken = findValue('continuationToken', 'continuation_token', 'continuationtoken', 'continuation');
     if (continuationToken !== undefined) {
         normalized.continuationToken = String(continuationToken).trim();
     }
 
-    const grantType = coalesce(
-        body.grantType,
-        body.grant_type,
-        body.grant,
-        body.type
-    );
+    // Normalize grantType (keep original if exists, otherwise check aliases)
+    const grantType = findValue('grantType', 'grant_type', 'grant', 'type');
     if (grantType !== undefined) {
         normalized.grantType = String(grantType).trim().toLowerCase();
     }
 
-    const codeValue = coalesce(
-        body.code,
-        body.verificationCode,
-        body.verification_code,
-        body.otp,
-        body.oob,
-        body.oneTimeCode,
-        body.one_time_code
-    );
+    // Normalize code (keep original if exists, otherwise check aliases)
+    const codeValue = findValue('code', 'verificationCode', 'verification_code', 'otp', 'oob', 'oneTimeCode', 'one_time_code');
     if (codeValue !== undefined) {
         normalized.code = String(codeValue).trim();
     }
 
-    const passwordValue = coalesce(
-        body.password,
-        body.newPassword,
-        body.new_password
-    );
+    // Normalize password (keep original if exists, otherwise check aliases)
+    const passwordValue = findValue('password', 'newPassword', 'new_password');
     if (passwordValue !== undefined) {
         normalized.password = String(passwordValue);
     }
@@ -862,7 +866,7 @@ const performNativeSignUpContinue = async ({ continuationToken, grantType, code,
     };
 
     if (grantType === 'oob') {
-        payload.oob = code;
+        payload.code = code;
     }
 
     if (grantType === 'password') {
@@ -1001,8 +1005,10 @@ app.http('NativeSignUpContinue', {
 
         const normalizedBody = normalizeSignUpContinuePayload(body);
 
-        if (!validateSignUpContinue(normalizedBody)) {
-            context.log.warn('[NativeAuth][SignUpContinue] Payload validation failed', safeStringify({ correlationId, errors: validateSignUpContinue.errors }));
+        // Create a deep copy for validation to prevent AJV from modifying the original object
+        const payloadForValidation = JSON.parse(JSON.stringify(normalizedBody));
+
+        if (!validateSignUpContinue(payloadForValidation)) {
             return failure(400, 'Continuation token and grant type are required.', correlationId, validateSignUpContinue.errors);
         }
 

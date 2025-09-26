@@ -45,7 +45,13 @@ function LoginPage() {
       window.location.assign(response.authUrl);
     } catch (err) {
       console.error("[LoginPage] Sign-in failed", err);
-      setFormError(err.message || "Unable to start sign-in flow");
+      // Display errorDescription if available, otherwise fall back to message
+      const errorMessage =
+        err?.data?.details?.errorDescription ||
+        err?.data?.error ||
+        err?.message ||
+        "Unable to start sign-in flow";
+      setFormError(errorMessage);
       setIsRedirecting(false);
     }
   };
@@ -111,7 +117,12 @@ function LoginPage() {
       const correlationId =
         err?.correlationId ?? err?.data?.correlationId ?? null;
       const code = err?.code || err?.data?.details?.code || null;
-      const message = err?.data?.error || err?.message || "Unable to sign in";
+      // Display errorDescription if available, otherwise fall back to error or message
+      const message =
+        err?.data?.details?.errorDescription ||
+        err?.data?.error ||
+        err?.message ||
+        "Unable to sign in";
 
       if (code === "redirect_required") {
         setFormError(
@@ -204,6 +215,10 @@ function LoginPage() {
                 Sign in with email & password
               </button>
             </form>
+
+            <p className="muted">
+              <Link to="/auth/reset-password">Forgot your password?</Link>
+            </p>
           </>
         )}
 
