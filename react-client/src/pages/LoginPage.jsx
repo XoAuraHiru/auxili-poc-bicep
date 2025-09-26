@@ -88,6 +88,10 @@ function LoginPage() {
 
       login({ user: response.user, tokens });
 
+      if (response?.correlationId) {
+        setFormCorrelationId(response.correlationId);
+      }
+
       try {
         const profile = await getProfile(tokens.accessToken);
         if (profile) {
@@ -104,14 +108,25 @@ function LoginPage() {
       navigate(redirectPath, { replace: true });
     } catch (err) {
       console.error("[LoginPage] Password sign-in failed", err);
+      const correlationId =
+        err?.correlationId ?? err?.data?.correlationId ?? null;
+      const code = err?.code || err?.data?.details?.code || null;
       const message = err?.data?.error || err?.message || "Unable to sign in";
+
+      if (code === "redirect_required") {
+        setFormError(
+          "Native auth isn't available for this account. Redirecting to Microsoft sign-in..."
+        );
+        setFormCorrelationId(correlationId);
+        await handleSignIn();
+        return;
+      }
+
       setFormError(message);
-      setFormCorrelationId(
-        err?.data?.correlationId ?? err?.correlationId ?? null
-      );
+      setFormCorrelationId(correlationId);
       setAuthError?.({
         message,
-        correlationId: err?.data?.correlationId ?? null,
+        correlationId,
       });
     } finally {
       setIsPasswordSubmitting(false);

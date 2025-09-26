@@ -28,7 +28,7 @@ export async function requestAuthUrl() {
     return response
 }
 
-export async function passwordSignIn({ email, password }) {
+export async function passwordSignIn({ email, password, signal } = {}) {
     if (!email || !password) {
         throw new Error('Email and password are required')
     }
@@ -38,10 +38,25 @@ export async function passwordSignIn({ email, password }) {
         password: String(password)
     }
 
-    return apiRequest('/auth/password', {
-        method: 'POST',
-        body: payload
-    })
+    try {
+        const response = await apiRequest('/auth/password', {
+            method: 'POST',
+            body: payload,
+            signal
+        })
+
+        return {
+            ...response,
+            correlationId: response?.correlationId ?? null,
+            message: response?.message || 'Authentication successful'
+        }
+    } catch (error) {
+        if (error?.data) {
+            error.correlationId = error.data?.correlationId ?? null
+            error.code = error.data?.details?.code || error.data?.details?.error || error.code
+        }
+        throw error
+    }
 }
 
 export async function exchangeAuthCode({ code, state }) {

@@ -9,3 +9,11 @@ func azure functionapp publish func-auxili-user-dev-ad7stftg;
 
 cd "product-function-app-v4";
 func azure functionapp publish func-auxili-product-dev-ad7stftg;
+
+az functionapp config appsettings set `
+  --name func-auxili-user-dev-ad7stftg `
+  --resource-group rg-auxili-poc-v2-dev `
+  --settings NATIVE_AUTH_ENABLED=true `
+             NATIVE_AUTH_CLIENT_ID=c54e3f69-ee17-44c4-b044-018f629a6bf5 `
+             NATIVE_AUTH_TENANT_SUBDOMAIN=auxilian `
+             NATIVE_AUTH_SCOPES="openid profile email offline_access"

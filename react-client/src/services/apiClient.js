@@ -70,12 +70,13 @@ async function handleResponse(response) {
     return data
 }
 
-export async function apiRequest(path, { method = 'GET', body, headers, token } = {}) {
+export async function apiRequest(path, { method = 'GET', body, headers, token, signal } = {}) {
     const url = buildUrl(path)
     const requestInit = {
         method,
         headers: buildHeaders(token, headers),
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
+        signal
     }
 
     return fetch(url, requestInit).then(handleResponse)
