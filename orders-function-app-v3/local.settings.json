@@ -3,6 +3,14 @@
     "Values": {
         "AzureWebJobsStorage": "",
         "FUNCTIONS_WORKER_RUNTIME": "node",
-        "WEBSITE_NODE_DEFAULT_VERSION": "~18"
+        "WEBSITE_NODE_DEFAULT_VERSION": "~18",
+        "AUTH_JWKS_URI": "https://your-tenant.ciamlogin.com/your-tenant.onmicrosoft.com/discovery/v2.0/keys",
+        "AUTH_ISSUER": "https://your-tenant.ciamlogin.com/your-tenant.onmicrosoft.com",
+        "AUTH_AUDIENCE": "api://your-api-client-id",
+        "AUTH_CLOCK_SKEW_SECONDS": "60",
+        "ORDERS_READ_ROLES": "Orders.Read Orders.Admin",
+        "ORDERS_READ_SCOPES": "Orders.Read",
+        "ORDERS_ALLOWED_TENANTS": "",
+        "ORDERS_ALLOWED_CLIENTS": ""
     }
 }
