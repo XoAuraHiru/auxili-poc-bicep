@@ -167,16 +167,20 @@ resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@20
 }
 
 // Product API Policy - Authentication + Function Key
+var productFunctionAuthKey = listkeys('${productFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
+var userFunctionAuthKey = listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
+var ordersFunctionAuthKey = listkeys('${ordersFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
+
+var functionKeyInjectionWithPlaceholder = '  <inbound>\n    <base />\n    <!-- Function App Authentication -->\n    <set-header name="x-functions-key" exists-action="override">\n      <value>{0}</value>\n    </set-header>'
+var productFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, productFunctionAuthKey)
+var userFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, userFunctionAuthKey)
+var ordersFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, ordersFunctionAuthKey)
+
 resource productApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
   parent: productApi
   properties: {
-    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', '''  <inbound>
-    <base />
-    <!-- Function App Authentication -->
-    <set-header name="x-functions-key" exists-action="override">
-      <value>${listkeys('${productFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
-    </set-header>''')
+    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', productFunctionInjectedInbound)
   }
 }
 
@@ -185,12 +189,7 @@ resource userApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
   name: 'policy'
   parent: userApi
   properties: {
-    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', '''  <inbound>
-    <base />
-    <!-- Function App Authentication -->
-    <set-header name="x-functions-key" exists-action="override">
-      <value>${listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
-    </set-header>''')
+    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', userFunctionInjectedInbound)
   }
 }
 
@@ -241,12 +240,7 @@ resource ordersApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-
   name: 'policy'
   parent: ordersApi
   properties: {
-    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', '''  <inbound>
-    <base />
-    <!-- Function App Authentication -->
-    <set-header name="x-functions-key" exists-action="override">
-      <value>${listkeys('${ordersFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
-    </set-header>''')
+    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', ordersFunctionInjectedInbound)
   }
 }
 
@@ -343,12 +337,7 @@ resource authApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01
   name: 'policy'
   parent: authApi
   properties: {
-    value: replace(publicApiPolicy, '  <inbound>\n    <base />', '''  <inbound>
-    <base />
-    <!-- Function App Authentication -->
-    <set-header name="x-functions-key" exists-action="override">
-      <value>${listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default}</value>
-    </set-header>''')
+    value: replace(publicApiPolicy, '  <inbound>\n    <base />', userFunctionInjectedInbound)
   }
 }
 

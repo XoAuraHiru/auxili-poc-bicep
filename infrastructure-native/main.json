@@ -1,0 +1,1239 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.37.4.10188",
+      "templateHash": "12143486093942643869"
+    }
+  },
+  "parameters": {
+    "environment": {
+      "type": "string",
+      "defaultValue": "dev",
+      "allowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "metadata": {
+        "description": "Deployment environment identifier (dev, staging, prod)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Defaults to the resource group's location."
+      }
+    },
+    "orgName": {
+      "type": "string",
+      "defaultValue": "auxili",
+      "metadata": {
+        "description": "Short organization label used for resource naming (alphanumeric only)."
+      }
+    },
+    "serviceCode": {
+      "type": "string",
+      "defaultValue": "nat",
+      "metadata": {
+        "description": "Short service code used in resource names to keep them unique."
+      }
+    },
+    "apimAdminEmail": {
+      "type": "string",
+      "defaultValue": "admin@auxili.com",
+      "metadata": {
+        "description": "Administrator email address for API Management publisher settings."
+      }
+    },
+    "enablePrivateEndpoints": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether to enable private endpoints on supporting services (recommended for prod)."
+      }
+    },
+    "enableAuth": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether JWT enforcement should be enabled on APIM for native auth endpoints."
+      }
+    },
+    "applicationId": {
+      "type": "string",
+      "defaultValue": "00000000-0000-0000-0000-000000000000",
+      "metadata": {
+        "description": "Primary Entra ID application (client) ID accepted by the API policies."
+      }
+    },
+    "tenantId": {
+      "type": "string",
+      "defaultValue": "[tenant().tenantId]",
+      "metadata": {
+        "description": "Azure AD tenant ID used for issuer discovery and JWKS resolution."
+      }
+    },
+    "issuerUrl": {
+      "type": "string",
+      "defaultValue": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, parameters('tenantId'))]",
+      "metadata": {
+        "description": "JWT issuer URL override if different from the default cloud authority."
+      }
+    },
+    "jwksUri": {
+      "type": "string",
+      "defaultValue": "[format('{0}{1}/discovery/v2.0/keys', environment().authentication.loginEndpoint, parameters('tenantId'))]",
+      "metadata": {
+        "description": "JWKS URI override for JWT key discovery."
+      }
+    },
+    "additionalAudiences": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Additional audiences accepted during JWT validation."
+      }
+    },
+    "requiredScopes": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Delegated scopes that must be present on protected calls."
+      }
+    },
+    "requiredRoles": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "App roles that must be present on protected calls."
+      }
+    },
+    "allowedOrigins": {
+      "type": "array",
+      "defaultValue": "[if(equals(toLower(parameters('environment')), 'dev'), createArray('http://localhost:3000', 'https://oauth.pstmn.io'), createArray('https://oauth.pstmn.io'))]",
+      "metadata": {
+        "description": "Allowed CORS origins enforced by APIM for native auth endpoints."
+      }
+    },
+    "rateLimitCalls": {
+      "type": "int",
+      "defaultValue": 120,
+      "metadata": {
+        "description": "Maximum number of calls allowed per renewal window."
+      }
+    },
+    "rateLimitRenewalSeconds": {
+      "type": "int",
+      "defaultValue": 60,
+      "metadata": {
+        "description": "Renewal window length (seconds) for the rate limit policy."
+      }
+    }
+  },
+  "variables": {
+    "normalizedOrg": "[toLower(replace(replace(parameters('orgName'), '-', ''), '_', ''))]",
+    "normalizedService": "[toLower(replace(replace(parameters('serviceCode'), '-', ''), '_', ''))]",
+    "uniqueSuffix": "[substring(uniqueString(resourceGroup().id, variables('normalizedService')), 0, 6)]",
+    "envLower": "[toLower(parameters('environment'))]",
+    "naming": {
+      "storage": "[format('st{0}{1}{2}{3}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'), variables('uniqueSuffix'))]",
+      "functionApp": "[format('func-{0}-{1}-{2}-{3}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'), variables('uniqueSuffix'))]",
+      "appServicePlan": "[format('plan-{0}-{1}-{2}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'))]",
+      "appInsights": "[format('ai-{0}-{1}-{2}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'))]",
+      "logAnalytics": "[format('log-{0}-{1}-{2}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'))]",
+      "apim": "[format('apim-{0}-{1}-{2}-{3}', variables('normalizedOrg'), variables('normalizedService'), variables('envLower'), variables('uniqueSuffix'))]"
+    },
+    "envConfig": {
+      "dev": {
+        "apimSku": "Consumption",
+        "functionAppSku": "Y1",
+        "functionAppTier": "Dynamic",
+        "storageRedundancy": "Standard_LRS",
+        "logRetentionDays": 30
+      },
+      "staging": {
+        "apimSku": "Developer",
+        "functionAppSku": "EP1",
+        "functionAppTier": "ElasticPremium",
+        "storageRedundancy": "Standard_GRS",
+        "logRetentionDays": 30
+      },
+      "prod": {
+        "apimSku": "Standard",
+        "functionAppSku": "EP1",
+        "functionAppTier": "ElasticPremium",
+        "storageRedundancy": "Standard_GRS",
+        "logRetentionDays": 90
+      }
+    },
+    "currentConfig": "[variables('envConfig')[variables('envLower')]]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('naming').logAnalytics]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": "[variables('currentConfig').logRetentionDays]",
+        "features": {
+          "enableLogAccessUsingOnlyResourcePermissions": true
+        }
+      },
+      "tags": {
+        "Environment": "[variables('envLower')]",
+        "Service": "[format('{0}-{1}', variables('normalizedOrg'), variables('normalizedService'))]"
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "appInsights",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "appInsightsName": {
+            "value": "[variables('naming').appInsights]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('naming').logAnalytics)]"
+          },
+          "environment": {
+            "value": "[variables('envLower')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "6177347089345971604"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for Application Insights"
+              }
+            },
+            "appInsightsName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of Application Insights"
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics Workspace ID"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2020-02-02",
+              "name": "[parameters('appInsightsName')]",
+              "location": "[parameters('location')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "IngestionMode": "LogAnalytics",
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Monitoring"
+              }
+            }
+          ],
+          "outputs": {
+            "appInsightsName": {
+              "type": "string",
+              "value": "[parameters('appInsightsName')]"
+            },
+            "instrumentationKey": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            "connectionString": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').ConnectionString]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('naming').logAnalytics)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "nativeAuthStorage",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('naming').storage]"
+          },
+          "redundancy": {
+            "value": "[variables('currentConfig').storageRedundancy]"
+          },
+          "enablePrivateEndpoints": {
+            "value": "[parameters('enablePrivateEndpoints')]"
+          },
+          "environment": {
+            "value": "[variables('envLower')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "7699521651961588571"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the storage account"
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the storage account"
+              }
+            },
+            "redundancy": {
+              "type": "string",
+              "defaultValue": "Standard_LRS",
+              "metadata": {
+                "description": "Storage redundancy type"
+              }
+            },
+            "enablePrivateEndpoints": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable private endpoints"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-01-01",
+              "name": "[parameters('storageAccountName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('redundancy')]"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": true,
+                "publicNetworkAccess": "[if(parameters('enablePrivateEndpoints'), 'Disabled', 'Enabled')]",
+                "encryption": {
+                  "services": {
+                    "blob": {
+                      "enabled": true
+                    },
+                    "file": {
+                      "enabled": true
+                    },
+                    "queue": {
+                      "enabled": true
+                    },
+                    "table": {
+                      "enabled": true
+                    }
+                  }
+                },
+                "networkAcls": "[if(parameters('enablePrivateEndpoints'), createObject('defaultAction', 'Deny', 'bypass', 'AzureServices'), createObject('defaultAction', 'Allow'))]"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Storage"
+              }
+            }
+          ],
+          "outputs": {
+            "storageAccountName": {
+              "type": "string",
+              "value": "[parameters('storageAccountName')]"
+            },
+            "storageAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "nativeAuthFunction",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "functionAppName": {
+            "value": "[variables('naming').functionApp]"
+          },
+          "appServicePlanName": {
+            "value": "[variables('naming').appServicePlan]"
+          },
+          "appServicePlanSku": {
+            "value": "[variables('currentConfig').functionAppSku]"
+          },
+          "appServicePlanTier": {
+            "value": "[variables('currentConfig').functionAppTier]"
+          },
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthStorage'), '2022-09-01').outputs.storageAccountName.value]"
+          },
+          "appInsightsConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appInsights'), '2022-09-01').outputs.connectionString.value]"
+          },
+          "appInsightsInstrumentationKey": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appInsights'), '2022-09-01').outputs.instrumentationKey.value]"
+          },
+          "environment": {
+            "value": "[variables('envLower')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "9735585876568109819"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Function App"
+              }
+            },
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Function App"
+              }
+            },
+            "appServicePlanName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the App Service Plan"
+              }
+            },
+            "appServicePlanSku": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan SKU"
+              }
+            },
+            "appServicePlanTier": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan tier"
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage Account name for Function App"
+              }
+            },
+            "appInsightsConnectionString": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights connection string"
+              }
+            },
+            "appInsightsInstrumentationKey": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights instrumentation key"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2022-09-01",
+              "name": "[parameters('appServicePlanName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('appServicePlanSku')]",
+                "tier": "[parameters('appServicePlanTier')]"
+              },
+              "kind": "functionapp",
+              "properties": {
+                "reserved": true,
+                "elasticScaleEnabled": "[equals(parameters('appServicePlanTier'), 'ElasticPremium')]"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Compute"
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2022-09-01",
+              "name": "[parameters('functionAppName')]",
+              "location": "[parameters('location')]",
+              "kind": "functionapp,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "httpsOnly": true,
+                "clientAffinityEnabled": false,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|20",
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "alwaysOn": "[not(equals(parameters('appServicePlanTier'), 'Dynamic'))]",
+                  "scmMinTlsVersion": "1.2",
+                  "use32BitWorkerProcess": false,
+                  "appSettings": [
+                    {
+                      "name": "FUNCTIONS_EXTENSION_VERSION",
+                      "value": "~4"
+                    },
+                    {
+                      "name": "FUNCTIONS_WORKER_RUNTIME",
+                      "value": "node"
+                    },
+                    {
+                      "name": "AzureWebJobsStorage",
+                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                    },
+                    {
+                      "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                    },
+                    {
+                      "name": "WEBSITE_CONTENTSHARE",
+                      "value": "[toLower(parameters('functionAppName'))]"
+                    },
+                    {
+                      "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+                      "value": "[parameters('appInsightsInstrumentationKey')]"
+                    },
+                    {
+                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                      "value": "[parameters('appInsightsConnectionString')]"
+                    },
+                    {
+                      "name": "WEBSITE_RUN_FROM_PACKAGE",
+                      "value": "1"
+                    },
+                    {
+                      "name": "NODE_ENV",
+                      "value": "[parameters('environment')]"
+                    }
+                  ]
+                },
+                "publicNetworkAccess": "Enabled"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Function"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
+              ]
+            },
+            {
+              "condition": "[equals(parameters('environment'), 'dev')]",
+              "type": "Microsoft.Web/sites/config",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'web')]",
+              "properties": {
+                "cors": {
+                  "allowedOrigins": [
+                    "*"
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "functionAppName": {
+              "type": "string",
+              "value": "[parameters('functionAppName')]"
+            },
+            "functionAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            },
+            "functionAppHostName": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-09-01').defaultHostName]"
+            },
+            "functionAppPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-09-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'appInsights')]",
+        "[resourceId('Microsoft.Resources/deployments', 'nativeAuthStorage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "nativeAuthApim",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "apimName": {
+            "value": "[variables('naming').apim]"
+          },
+          "apimSku": {
+            "value": "[variables('currentConfig').apimSku]"
+          },
+          "publisherEmail": {
+            "value": "[parameters('apimAdminEmail')]"
+          },
+          "publisherName": {
+            "value": "[format('{0} Native Auth', parameters('orgName'))]"
+          },
+          "environment": {
+            "value": "[variables('envLower')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "5989226536960679733"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for APIM"
+              }
+            },
+            "apimName": {
+              "type": "string",
+              "metadata": {
+                "description": "APIM service name"
+              }
+            },
+            "apimSku": {
+              "type": "string",
+              "metadata": {
+                "description": "APIM SKU"
+              }
+            },
+            "publisherEmail": {
+              "type": "string",
+              "metadata": {
+                "description": "Publisher email"
+              }
+            },
+            "publisherName": {
+              "type": "string",
+              "metadata": {
+                "description": "Publisher name"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ApiManagement/service",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[parameters('apimName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('apimSku')]",
+                "capacity": "[if(equals(parameters('apimSku'), 'Consumption'), 0, 1)]"
+              },
+              "properties": {
+                "publisherEmail": "[parameters('publisherEmail')]",
+                "publisherName": "[parameters('publisherName')]",
+                "notificationSenderEmail": "apimgmt-noreply@mail.windowsazure.com",
+                "customProperties": {
+                  "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.Tls10": "false",
+                  "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.Tls11": "false",
+                  "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Tls10": "false",
+                  "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Tls11": "false",
+                  "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Ssl30": "false"
+                }
+              },
+              "identity": {
+                "type": "[if(equals(parameters('apimSku'), 'Consumption'), 'None', 'SystemAssigned')]"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "API Gateway"
+              }
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/policies",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('apimName'), 'policy')]",
+              "properties": {
+                "value": "    <policies>\r\n      <inbound>\r\n        <set-header name=\"X-Powered-By\" exists-action=\"delete\" />\r\n        <set-header name=\"Server\" exists-action=\"delete\" />\r\n      </inbound>\r\n      <backend>\r\n        <forward-request />\r\n      </backend>\r\n      <outbound>\r\n        <set-header name=\"X-Content-Type-Options\" exists-action=\"override\">\r\n          <value>nosniff</value>\r\n        </set-header>\r\n        <set-header name=\"X-Frame-Options\" exists-action=\"override\">\r\n          <value>DENY</value>\r\n        </set-header>\r\n        <set-header name=\"Strict-Transport-Security\" exists-action=\"override\">\r\n          <value>max-age=31536000; includeSubDomains</value>\r\n        </set-header>\r\n      </outbound>\r\n      <on-error />\r\n    </policies>\r\n    "
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', parameters('apimName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "apimName": {
+              "type": "string",
+              "value": "[parameters('apimName')]"
+            },
+            "apimId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ApiManagement/service', parameters('apimName'))]"
+            },
+            "gatewayUrl": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ApiManagement/service', parameters('apimName')), '2023-05-01-preview').gatewayUrl]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "nativeAuthPolicies",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "applicationId": {
+            "value": "[parameters('applicationId')]"
+          },
+          "tenantId": {
+            "value": "[parameters('tenantId')]"
+          },
+          "environment": {
+            "value": "[variables('envLower')]"
+          },
+          "enableAuth": {
+            "value": "[parameters('enableAuth')]"
+          },
+          "issuerUrl": {
+            "value": "[parameters('issuerUrl')]"
+          },
+          "jwksUri": {
+            "value": "[parameters('jwksUri')]"
+          },
+          "additionalAudiences": {
+            "value": "[parameters('additionalAudiences')]"
+          },
+          "requiredScopes": {
+            "value": "[parameters('requiredScopes')]"
+          },
+          "requiredRoles": {
+            "value": "[parameters('requiredRoles')]"
+          },
+          "allowedOrigins": {
+            "value": "[parameters('allowedOrigins')]"
+          },
+          "rateLimitCalls": {
+            "value": "[parameters('rateLimitCalls')]"
+          },
+          "rateLimitRenewalSeconds": {
+            "value": "[parameters('rateLimitRenewalSeconds')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "1936334951117422114"
+            }
+          },
+          "parameters": {
+            "applicationId": {
+              "type": "string",
+              "metadata": {
+                "description": "Entra ID application ID for JWT validation"
+              }
+            },
+            "tenantId": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure AD tenant ID"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment for configuration"
+              }
+            },
+            "enableAuth": {
+              "type": "bool",
+              "metadata": {
+                "description": "Whether to enable authentication (false for dev)"
+              }
+            },
+            "issuerUrl": {
+              "type": "string",
+              "defaultValue": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, parameters('tenantId'))]",
+              "metadata": {
+                "description": "Issuer URL for JWT validation"
+              }
+            },
+            "jwksUri": {
+              "type": "string",
+              "defaultValue": "[format('{0}{1}/discovery/v2.0/keys', environment().authentication.loginEndpoint, parameters('tenantId'))]",
+              "metadata": {
+                "description": "JWKS URI for JWT validation"
+              }
+            },
+            "additionalAudiences": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Additional audiences to accept when validating tokens"
+              }
+            },
+            "requiredScopes": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Scopes that must be present on delegated tokens"
+              }
+            },
+            "requiredRoles": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "App roles that must be present on application tokens"
+              }
+            },
+            "allowedOrigins": {
+              "type": "array",
+              "defaultValue": "[if(equals(parameters('environment'), 'dev'), createArray('http://localhost:3000', 'https://oauth.pstmn.io'), createArray('https://oauth.pstmn.io'))]",
+              "metadata": {
+                "description": "Origins allowed for cross-origin requests"
+              }
+            },
+            "rateLimitCalls": {
+              "type": "int",
+              "defaultValue": 120,
+              "metadata": {
+                "description": "Maximum calls allowed per renewal period for authenticated traffic"
+              }
+            },
+            "rateLimitRenewalSeconds": {
+              "type": "int",
+              "defaultValue": 60,
+              "metadata": {
+                "description": "Renewal period in seconds for the rate limit policy"
+              }
+            }
+          },
+          "variables": {
+            "copy": [
+              {
+                "name": "audienceElements",
+                "count": "[length(variables('acceptedAudiences'))]",
+                "input": "[format('        <audience>{0}</audience>', variables('acceptedAudiences')[copyIndex('audienceElements')])]"
+              },
+              {
+                "name": "scopeValueElements",
+                "count": "[length(parameters('requiredScopes'))]",
+                "input": "[format('        <value>{0}</value>', parameters('requiredScopes')[copyIndex('scopeValueElements')])]"
+              },
+              {
+                "name": "roleValueElements",
+                "count": "[length(parameters('requiredRoles'))]",
+                "input": "[format('        <value>{0}</value>', parameters('requiredRoles')[copyIndex('roleValueElements')])]"
+              },
+              {
+                "name": "corsOriginElementsGenerated",
+                "count": "[length(parameters('allowedOrigins'))]",
+                "input": "[format('        <origin>{0}</origin>', parameters('allowedOrigins')[copyIndex('corsOriginElementsGenerated')])]"
+              }
+            ],
+            "openIdConfigurationUrl": "[format('{0}/.well-known/openid-configuration', parameters('issuerUrl'))]",
+            "acceptedAudiences": "[concat(createArray(parameters('applicationId')), parameters('additionalAudiences'))]",
+            "audiencesXml": "[format('      <audiences>\n{0}\n      </audiences>\n', join(variables('audienceElements'), '\n'))]",
+            "scopeClaimsXml": "[if(greater(length(parameters('requiredScopes')), 0), format('      <claim name=\"scp\">\n{0}\n      </claim>\n      <claim name=\"scope\">\n{1}\n      </claim>\n', join(variables('scopeValueElements'), '\n'), join(variables('scopeValueElements'), '\n')), '')]",
+            "roleClaimsXml": "[if(greater(length(parameters('requiredRoles')), 0), format('      <claim name=\"roles\">\n{0}\n      </claim>\n', join(variables('roleValueElements'), '\n')), '')]",
+            "requiredClaimsXml": "[if(or(greater(length(parameters('requiredScopes')), 0), greater(length(parameters('requiredRoles')), 0)), format('      <required-claims>\n{0}{1}{2}      </required-claims>\n', variables('scopeClaimsXml'), if(and(greater(length(parameters('requiredScopes')), 0), greater(length(parameters('requiredRoles')), 0)), '\n', ''), variables('roleClaimsXml')), '')]",
+            "corsOriginElements": "[if(greater(length(variables('corsOriginElementsGenerated')), 0), variables('corsOriginElementsGenerated'), createArray('        <origin>*</origin>'))]",
+            "corsOriginsXml": "[join(variables('corsOriginElements'), '\n')]",
+            "jwksTrackingVariable": "[if(empty(parameters('jwksUri')), '', format('    <set-variable name=\"jwksUri\" value=\"{0}\" />\n', parameters('jwksUri')))]",
+            "protectedPolicyRaw": "[format('<policies>\n  <inbound>\n    <base />\n    <validate-jwt header-name=\"Authorization\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized. Access token is missing or invalid.\">\n      <openid-config url=\"{0}\" />\n{1}      <issuers>\n        <issuer>{2}</issuer>\n      </issuers>\n{3}    </validate-jwt>\n{4}    <set-header name=\"X-User-Object-Id\" exists-action=\"override\">\n      <value>@(context.Principal?.Claims.GetValueOrDefault(\"oid\") ?? string.Empty)</value>\n    </set-header>\n    <set-header name=\"X-User-Principal-Name\" exists-action=\"override\">\n      <value>@(context.Principal?.Claims.GetValueOrDefault(\"preferred_username\") ?? context.Principal?.Claims.GetValueOrDefault(\"email\") ?? string.Empty)</value>\n    </set-header>\n    <set-header name=\"X-User-Scopes\" exists-action=\"override\">\n      <value>@(context.Principal?.Claims.GetValueOrDefault(\"scp\") ?? context.Principal?.Claims.GetValueOrDefault(\"scope\") ?? string.Empty)</value>\n    </set-header>\n    <set-header name=\"X-Correlation-Id\" exists-action=\"override\">\n      <value>@(context.Request.Headers.GetValueOrDefault(\"x-correlation-id\") ?? context.TraceId)</value>\n    </set-header>\n    <set-header name=\"X-Environment\" exists-action=\"override\">\n      <value>{5}</value>\n    </set-header>\n    <rate-limit calls=\"{6}\" renewal-period=\"{7}\" />\n    <cors allow-credentials=\"true\">\n      <allowed-origins>\n{8}\n      </allowed-origins>\n      <allowed-methods>\n        <method>GET</method>\n        <method>POST</method>\n        <method>PUT</method>\n        <method>DELETE</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>*</header>\n      </allowed-headers>\n      <expose-headers>\n        <header>X-Correlation-Id</header>\n      </expose-headers>\n    </cors>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n    <set-header name=\"X-Content-Type-Options\" exists-action=\"override\">\n      <value>nosniff</value>\n    </set-header>\n    <set-header name=\"X-Frame-Options\" exists-action=\"override\">\n      <value>DENY</value>\n    </set-header>\n    <set-header name=\"Strict-Transport-Security\" exists-action=\"override\">\n      <value>max-age=31536000; includeSubDomains</value>\n    </set-header>\n    <set-header name=\"Referrer-Policy\" exists-action=\"override\">\n      <value>no-referrer</value>\n    </set-header>\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>\n', variables('openIdConfigurationUrl'), variables('audiencesXml'), parameters('issuerUrl'), variables('requiredClaimsXml'), variables('jwksTrackingVariable'), parameters('environment'), parameters('rateLimitCalls'), parameters('rateLimitRenewalSeconds'), variables('corsOriginsXml'))]",
+            "publicPolicyRaw": "[format('<policies>\n  <inbound>\n    <base />\n    <rate-limit calls=\"{0}\" renewal-period=\"{1}\" />\n    <cors>\n      <allowed-origins>\n{2}\n      </allowed-origins>\n      <allowed-methods>\n        <method>GET</method>\n        <method>POST</method>\n        <method>PUT</method>\n        <method>DELETE</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>*</header>\n      </allowed-headers>\n    </cors>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>\n', parameters('rateLimitCalls'), parameters('rateLimitRenewalSeconds'), variables('corsOriginsXml'))]",
+            "developmentPolicyRaw": "[format('<policies>\n  <inbound>\n    <base />\n    <set-variable name=\"userId\" value=\"dev-user\" />\n    <set-header name=\"X-User-Id\" exists-action=\"override\">\n      <value>dev-user</value>\n    </set-header>\n    <rate-limit calls=\"{0}\" renewal-period=\"{1}\" />\n    <cors>\n      <allowed-origins>\n{2}\n      </allowed-origins>\n      <allowed-methods>\n        <method>*</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>*</header>\n      </allowed-headers>\n    </cors>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>\n', parameters('rateLimitCalls'), parameters('rateLimitRenewalSeconds'), variables('corsOriginsXml'))]",
+            "protectedApiPolicy": "[if(parameters('enableAuth'), variables('protectedPolicyRaw'), variables('developmentPolicyRaw'))]",
+            "publicApiPolicy": "[variables('publicPolicyRaw')]"
+          },
+          "resources": [],
+          "outputs": {
+            "protectedApiPolicy": {
+              "type": "string",
+              "value": "[variables('protectedApiPolicy')]"
+            },
+            "publicApiPolicy": {
+              "type": "string",
+              "value": "[variables('publicApiPolicy')]"
+            },
+            "authenticationEnabled": {
+              "type": "bool",
+              "value": "[parameters('enableAuth')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "nativeAuthApi",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "apimName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthApim'), '2022-09-01').outputs.apimName.value]"
+          },
+          "nativeFunctionAppHostName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthFunction'), '2022-09-01').outputs.functionAppHostName.value]"
+          },
+          "nativeFunctionAppName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthFunction'), '2022-09-01').outputs.functionAppName.value]"
+          },
+          "apiDisplayName": {
+            "value": "Native Auth Service"
+          },
+          "publicApiPolicy": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthPolicies'), '2022-09-01').outputs.publicApiPolicy.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "17676009592977364078"
+            }
+          },
+          "parameters": {
+            "apimName": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure API Management service name"
+              }
+            },
+            "nativeFunctionAppHostName": {
+              "type": "string",
+              "metadata": {
+                "description": "Function App hostname that hosts the native auth endpoints"
+              }
+            },
+            "nativeFunctionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Function App name (used to retrieve host keys)"
+              }
+            },
+            "apiDisplayName": {
+              "type": "string",
+              "defaultValue": "Native Auth API",
+              "metadata": {
+                "description": "Display name for the API inside API Management"
+              }
+            },
+            "publicApiPolicy": {
+              "type": "string",
+              "metadata": {
+                "description": "Policy XML applied to public endpoints."
+              }
+            }
+          },
+          "variables": {
+            "inboundPlaceholder": "  <inbound>\n    <base />"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ApiManagement/service/apis",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('apimName'), 'native-auth-api')]",
+              "properties": {
+                "displayName": "[parameters('apiDisplayName')]",
+                "description": "Surfaced native authentication endpoints backed by Azure Functions.",
+                "serviceUrl": "[format('https://{0}/api/auth', parameters('nativeFunctionAppHostName'))]",
+                "path": "auth",
+                "protocols": [
+                  "https"
+                ],
+                "subscriptionRequired": false,
+                "isCurrent": true
+              }
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'password-signin')]",
+              "properties": {
+                "displayName": "Password Sign In",
+                "method": "POST",
+                "urlTemplate": "/password",
+                "description": "Authenticate using native username/password flow."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'signup-start')]",
+              "properties": {
+                "displayName": "Start Sign Up",
+                "method": "POST",
+                "urlTemplate": "/signup/start",
+                "description": "Begins the native sign-up flow and issues a verification challenge."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'signup-challenge')]",
+              "properties": {
+                "displayName": "Send Sign Up Challenge",
+                "method": "POST",
+                "urlTemplate": "/signup/challenge",
+                "description": "Sends the verification challenge to the user (for example, email OTP)."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'signup-continue')]",
+              "properties": {
+                "displayName": "Continue Sign Up",
+                "method": "POST",
+                "urlTemplate": "/signup/continue",
+                "description": "Completes the native sign-up verification steps."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'password-reset-start')]",
+              "properties": {
+                "displayName": "Start Password Reset",
+                "method": "POST",
+                "urlTemplate": "/password/reset/start",
+                "description": "Begins the password reset flow and sends a verification challenge."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'password-reset-continue')]",
+              "properties": {
+                "displayName": "Continue Password Reset",
+                "method": "POST",
+                "urlTemplate": "/password/reset/continue",
+                "description": "Completes the password reset verification and updates the password."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'native-auth-health')]",
+              "properties": {
+                "displayName": "Health",
+                "method": "GET",
+                "urlTemplate": "/health",
+                "description": "Health probe for the native authentication function."
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/policies",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'native-auth-api', 'policy')]",
+              "properties": {
+                "value": "[replace(parameters('publicApiPolicy'), variables('inboundPlaceholder'), format('  <inbound>\n    <base />\n    <!-- Function App Authentication -->\n    <set-header name=\"x-functions-key\" exists-action=\"override\">\n      <value>{0}</value>\n    </set-header>', listkeys(format('{0}/host/default', resourceId('Microsoft.Web/sites', parameters('nativeFunctionAppName'))), '2022-09-01').functionKeys.default))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'native-auth-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations/policies",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}/{3}', parameters('apimName'), 'native-auth-api', 'native-auth-health', 'policy')]",
+              "properties": {
+                "value": "[parameters('publicApiPolicy')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis/operations', parameters('apimName'), 'native-auth-api', 'native-auth-health')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "nativeAuthApiName": {
+              "type": "string",
+              "value": "native-auth-api"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'nativeAuthApim')]",
+        "[resourceId('Microsoft.Resources/deployments', 'nativeAuthFunction')]",
+        "[resourceId('Microsoft.Resources/deployments', 'nativeAuthPolicies')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthFunction'), '2022-09-01').outputs.functionAppName.value]"
+    },
+    "functionAppHostName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthFunction'), '2022-09-01').outputs.functionAppHostName.value]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthStorage'), '2022-09-01').outputs.storageAccountName.value]"
+    },
+    "appInsightsName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appInsights'), '2022-09-01').outputs.appInsightsName.value]"
+    },
+    "apimName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthApim'), '2022-09-01').outputs.apimName.value]"
+    },
+    "apimGatewayUrl": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nativeAuthApim'), '2022-09-01').outputs.gatewayUrl.value]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('naming').logAnalytics)]"
+    }
+  }
+}

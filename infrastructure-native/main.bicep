@@ -21,6 +21,44 @@ param apimAdminEmail string = 'admin@auxili.com'
 @description('Whether to enable private endpoints on supporting services (recommended for prod).')
 param enablePrivateEndpoints bool = false
 
+@description('Whether JWT enforcement should be enabled on APIM for native auth endpoints.')
+param enableAuth bool = false
+
+@description('Primary Entra ID application (client) ID accepted by the API policies.')
+param applicationId string = '00000000-0000-0000-0000-000000000000'
+
+@description('Azure AD tenant ID used for issuer discovery and JWKS resolution.')
+param tenantId string = tenant().tenantId
+
+@description('JWT issuer URL override if different from the default cloud authority.')
+param issuerUrl string = '${az.environment().authentication.loginEndpoint}${tenantId}/v2.0'
+
+@description('JWKS URI override for JWT key discovery.')
+param jwksUri string = '${az.environment().authentication.loginEndpoint}${tenantId}/discovery/v2.0/keys'
+
+@description('Additional audiences accepted during JWT validation.')
+param additionalAudiences array = []
+
+@description('Delegated scopes that must be present on protected calls.')
+param requiredScopes array = []
+
+@description('App roles that must be present on protected calls.')
+param requiredRoles array = []
+
+@description('Allowed CORS origins enforced by APIM for native auth endpoints.')
+param allowedOrigins array = toLower(environment) == 'dev' ? [
+  'http://localhost:3000'
+  'https://oauth.pstmn.io'
+] : [
+  'https://oauth.pstmn.io'
+]
+
+@description('Maximum number of calls allowed per renewal window.')
+param rateLimitCalls int = 120
+
+@description('Renewal window length (seconds) for the rate limit policy.')
+param rateLimitRenewalSeconds int = 60
+
 var normalizedOrg = toLower(replace(replace(orgName, '-', ''), '_', ''))
 var normalizedService = toLower(replace(replace(serviceCode, '-', ''), '_', ''))
 var uniqueSuffix = substring(uniqueString(resourceGroup().id, normalizedService), 0, 6)
@@ -81,7 +119,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
 }
 
 // Application Insights connected to the workspace above
-module appInsights '../modules/app-insights.bicep' = {
+module appInsights 'modules/app-insights.bicep' = {
   name: 'appInsights'
   params: {
     location: location
@@ -92,7 +130,7 @@ module appInsights '../modules/app-insights.bicep' = {
 }
 
 // Storage account backing the Function App
-module nativeAuthStorage '../modules/storage.bicep' = {
+module nativeAuthStorage 'modules/storage.bicep' = {
   name: 'nativeAuthStorage'
   params: {
     location: location
@@ -104,7 +142,7 @@ module nativeAuthStorage '../modules/storage.bicep' = {
 }
 
 // Linux Function App hosting the native authentication API
-module nativeAuthFunction '../modules/function-app.bicep' = {
+module nativeAuthFunction 'modules/function-app.bicep' = {
   name: 'nativeAuthFunction'
   params: {
     location: location
@@ -120,7 +158,7 @@ module nativeAuthFunction '../modules/function-app.bicep' = {
 }
 
 // API Management instance dedicated to the native auth service
-module nativeAuthApim '../modules/apim.bicep' = {
+module nativeAuthApim 'modules/apim.bicep' = {
   name: 'nativeAuthApim'
   params: {
     location: location
@@ -132,14 +170,33 @@ module nativeAuthApim '../modules/apim.bicep' = {
   }
 }
 
+module nativeAuthPolicies 'modules/auth-policies.bicep' = {
+  name: 'nativeAuthPolicies'
+  params: {
+    applicationId: applicationId
+    tenantId: tenantId
+    environment: envLower
+    enableAuth: enableAuth
+    issuerUrl: issuerUrl
+    jwksUri: jwksUri
+    additionalAudiences: additionalAudiences
+    requiredScopes: requiredScopes
+    requiredRoles: requiredRoles
+    allowedOrigins: allowedOrigins
+    rateLimitCalls: rateLimitCalls
+    rateLimitRenewalSeconds: rateLimitRenewalSeconds
+  }
+}
+
 // Expose the Function App endpoints through API Management
-module nativeAuthApi '../modules/native-auth-apim.bicep' = {
+module nativeAuthApi 'modules/native-auth-apim.bicep' = {
   name: 'nativeAuthApi'
   params: {
     apimName: nativeAuthApim.outputs.apimName
     nativeFunctionAppHostName: nativeAuthFunction.outputs.functionAppHostName
     nativeFunctionAppName: nativeAuthFunction.outputs.functionAppName
     apiDisplayName: 'Native Auth Service'
+    publicApiPolicy: nativeAuthPolicies.outputs.publicApiPolicy
   }
 }
 
