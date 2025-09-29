@@ -78,20 +78,6 @@ export function signupStart({ firstName, lastName, email, password, signal } = {
     })
 }
 
-export function signupSendChallenge({ continuationToken, signal } = {}) {
-    if (!continuationToken) {
-        throw new Error('Continuation token is required to send the verification code')
-    }
-
-    return apiRequest('/auth/signup/challenge', {
-        method: 'POST',
-        body: {
-            continuationToken
-        },
-        signal
-    })
-}
-
 export function signupVerifyCode({ continuationToken, code, signal } = {}) {
     if (!continuationToken) {
         throw new Error('Continuation token is required')

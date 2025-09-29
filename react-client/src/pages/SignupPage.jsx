@@ -20,6 +20,9 @@ function SignupPage() {
   const [otpCode, setOtpCode] = useState("");
   const [continuationToken, setContinuationToken] = useState(null);
   const [challengeTargetLabel, setChallengeTargetLabel] = useState(null);
+  const [challengeIntervalSeconds, setChallengeIntervalSeconds] =
+    useState(null);
+  const [challengeCodeLength, setChallengeCodeLength] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [correlationId, setCorrelationId] = useState(null);
@@ -62,6 +65,16 @@ function SignupPage() {
       setContinuationToken(startResponse?.continuationToken || null);
       setChallengeTargetLabel(
         startResponse?.challengeTargetLabel || form.email
+      );
+      setChallengeIntervalSeconds(
+        typeof startResponse?.challengeIntervalSeconds === "number"
+          ? startResponse.challengeIntervalSeconds
+          : null
+      );
+      setChallengeCodeLength(
+        typeof startResponse?.codeLength === "number"
+          ? startResponse.codeLength
+          : null
       );
       setCorrelationId(startResponse?.correlationId || null);
       setOtpCode("");
@@ -280,6 +293,16 @@ function SignupPage() {
             <p className="muted">
               Didn’t receive a code? Check your spam folder or restart the
               sign-up process.
+              {challengeIntervalSeconds ? (
+                <>
+                  {" "}
+                  You may need to wait at least {challengeIntervalSeconds}s
+                  before requesting another code.
+                </>
+              ) : null}
+              {challengeCodeLength ? (
+                <> Codes are {challengeCodeLength} characters long.</>
+              ) : null}
             </p>
           </>
         )}

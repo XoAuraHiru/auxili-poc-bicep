@@ -18,6 +18,9 @@ function PasswordResetPage() {
   const [otpCode, setOtpCode] = useState("");
   const [continuationToken, setContinuationToken] = useState(null);
   const [challengeTargetLabel, setChallengeTargetLabel] = useState(null);
+  const [challengeIntervalSeconds, setChallengeIntervalSeconds] =
+    useState(null);
+  const [challengeCodeLength, setChallengeCodeLength] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [correlationId, setCorrelationId] = useState(null);
@@ -51,6 +54,16 @@ function PasswordResetPage() {
       setContinuationToken(startResponse?.continuationToken || null);
       setChallengeTargetLabel(
         startResponse?.challengeTargetLabel || form.username
+      );
+      setChallengeIntervalSeconds(
+        typeof startResponse?.challengeIntervalSeconds === "number"
+          ? startResponse.challengeIntervalSeconds
+          : null
+      );
+      setChallengeCodeLength(
+        typeof startResponse?.codeLength === "number"
+          ? startResponse.codeLength
+          : null
       );
       setCorrelationId(startResponse?.correlationId || null);
       setOtpCode("");
@@ -121,6 +134,10 @@ function PasswordResetPage() {
 
       setStep("success");
       setOtpCode("");
+      setChallengeIntervalSeconds(null);
+      setChallengeCodeLength(null);
+      setChallengeTargetLabel(null);
+      setContinuationToken(null);
     } catch (err) {
       console.error("[PasswordResetPage] Password reset failed", err);
       // Display errorDescription if available, otherwise fall back to message
@@ -134,6 +151,17 @@ function PasswordResetPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRestart = () => {
+    setStep("start");
+    setContinuationToken(null);
+    setOtpCode("");
+    setChallengeTargetLabel(null);
+    setChallengeIntervalSeconds(null);
+    setChallengeCodeLength(null);
+    setError(null);
+    setCorrelationId(null);
   };
 
   const handleReturnToLogin = () => {
@@ -252,12 +280,22 @@ function PasswordResetPage() {
               <button
                 type="button"
                 className="btn btn--link"
-                onClick={() => setStep("start")}
+                onClick={handleRestart}
                 disabled={isLoading}
               >
-                try again
+                restart the reset
               </button>
               .
+              {challengeIntervalSeconds ? (
+                <>
+                  {" "}
+                  You may need to wait at least {challengeIntervalSeconds}s
+                  before requesting another code.
+                </>
+              ) : null}
+              {challengeCodeLength ? (
+                <> Codes are {challengeCodeLength} characters long.</>
+              ) : null}
             </p>
           </>
         )}

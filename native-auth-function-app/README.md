@@ -6,13 +6,14 @@ This Azure Functions app exposes a Microsoft Entra native authentication experie
 
 ```
 src/
+  core/                  # Shared orchestrators for password/sign-up/reset flows
   clients/               # HTTP client for Microsoft Entra native auth endpoints
   config/                # Environment-driven configuration helpers
   errors/                # Custom error types shared across services
   functions/             # Azure Function entry points (lightweight orchestrators)
   normalizers/           # Request payload normalizers
   services/              # Business logic for each authentication flow
-  utils/                 # Generic helpers (logging, JWT helpers, etc.)
+  utils/                 # Generic helpers (logging, correlation IDs, etc.)
   validation/            # AJV schemas and compiled validators
 ```
 
@@ -61,13 +62,9 @@ npm test
 
 ## OTP delivery flow
 
-- `POST /auth/signup/start` now triggers both the `/signup/v1.0/start` and `/signup/v1.0/challenge` Microsoft Entra calls. The function returns challenge metadata (channel, interval, obfuscated email) and a refreshed continuation token once the email OTP has been issued.
-- `POST /auth/password/reset/start` behaves the same way for the password reset flow by chaining `/resetpassword/v1.0/start` and `/resetpassword/v1.0/challenge`.
-- To resend a verification code, call the dedicated relays:
-  - `POST /auth/signup/challenge` with the latest continuation token.
-  - `POST /auth/password/reset/challenge` (future enhancement) or restart the reset flow.
-
-Each response includes `challengeIntervalSeconds` and `codeLength` hints so the client can respect Azure throttling guidance before attempting a resend.
+- `POST /auth/signup/start` chains `/signup/v1.0/start` and `/signup/v1.0/challenge`, returning challenge metadata (channel, interval, obfuscated email) plus the refreshed continuation token after issuing the OTP email.
+- `POST /auth/password/reset/start` performs the equivalent sequence for password reset by invoking `/resetpassword/v1.0/start` and `/resetpassword/v1.0/challenge`.
+- To resend a code, call the corresponding `start` endpoint again with the same identifier; Microsoft Entra will enforce throttling and the response still surfaces `challengeIntervalSeconds` and `codeLength` so clients can respect retry guidance.
 
 ## Deployment
 

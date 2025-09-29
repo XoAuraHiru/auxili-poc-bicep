@@ -6,19 +6,15 @@ import {
     ensureNativeConfig,
     signInWithPassword,
     signUpStart as performSignUpStart,
-    signUpChallenge as performSignUpChallenge,
     signUpContinue as performSignUpContinue,
     passwordResetStart as performPasswordResetStart,
-    passwordResetContinue as performPasswordResetContinue,
-    normalizeNativeAuthError,
-    normalizeNativeSignUpError
+    passwordResetContinue as performPasswordResetContinue
 } from '../services/nativeAuthService.js';
 import { NativeAuthError } from '../errors/NativeAuthError.js';
 
 const {
     signIn: validateSignIn,
     signUpStart: validateSignUpStart,
-    signUpChallenge: validateSignUpChallenge,
     signUpContinue: validateSignUpContinue,
     passwordResetStart: validatePasswordResetStart,
     passwordResetContinue: validatePasswordResetContinue
@@ -77,52 +73,15 @@ app.http('NativeSignUpStart', {
             return failure(400, 'First name, last name, email, and password are required.', correlationId, validateSignUpStart.errors);
         }
 
-        try {
-            return await performSignUpStart({
-                email: String(body.email).trim(),
-                password: String(body.password),
-                firstName: String(body.firstName).trim(),
-                lastName: String(body.lastName).trim(),
-                additionalAttributes: body.attributes,
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeSignUpError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
-    }
-});
-
-app.http('NativeSignUpChallenge', {
-    route: 'auth/signup/challenge',
-    methods: ['POST'],
-    authLevel: 'anonymous',
-    handler: async (request, context) => {
-        const correlationId = withCorrelation(context, request);
-        const body = await parseJsonBody(request, context, correlationId, 'SignUpChallenge');
-        if (!body) {
-            return failure(400, 'Invalid JSON payload', correlationId);
-        }
-
-        if (!validateSignUpChallenge(body)) {
-            context.log.warn('[NativeAuth][SignUpChallenge] Payload validation failed', safeStringify({
-                correlationId,
-                errors: validateSignUpChallenge.errors
-            }));
-            return failure(400, 'A continuation token is required.', correlationId, validateSignUpChallenge.errors);
-        }
-
-        try {
-            return await performSignUpChallenge({
-                continuationToken: String(body.continuationToken),
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeSignUpError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
+        return performSignUpStart({
+            email: String(body.email).trim(),
+            password: String(body.password),
+            firstName: String(body.firstName).trim(),
+            lastName: String(body.lastName).trim(),
+            additionalAttributes: body.attributes,
+            correlationId,
+            context
+        });
     }
 });
 
@@ -146,19 +105,14 @@ app.http('NativeSignUpContinue', {
 
         const grantType = String(normalizedBody.grantType).toLowerCase();
 
-        try {
-            return await performSignUpContinue({
-                continuationToken: String(normalizedBody.continuationToken),
-                grantType,
-                code: grantType === 'oob' ? String(normalizedBody.code) : undefined,
-                password: grantType === 'password' ? String(normalizedBody.password) : undefined,
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeSignUpError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
+        return performSignUpContinue({
+            continuationToken: String(normalizedBody.continuationToken),
+            grantType,
+            code: grantType === 'oob' ? String(normalizedBody.code) : undefined,
+            password: grantType === 'password' ? String(normalizedBody.password) : undefined,
+            correlationId,
+            context
+        });
     }
 });
 
@@ -181,17 +135,12 @@ app.http('NativePasswordSignIn', {
             return failure(400, 'Email and password are required', correlationId, validateSignIn.errors);
         }
 
-        try {
-            return await signInWithPassword({
-                email: String(body.email).trim(),
-                password: String(body.password),
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeAuthError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
+        return signInWithPassword({
+            email: String(body.email).trim(),
+            password: String(body.password),
+            correlationId,
+            context
+        });
     }
 });
 
@@ -210,16 +159,11 @@ app.http('NativePasswordResetStart', {
             return failure(400, 'Username is required.', correlationId, validatePasswordResetStart.errors);
         }
 
-        try {
-            return await performPasswordResetStart({
-                username: String(body.username).trim(),
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeAuthError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
+        return performPasswordResetStart({
+            username: String(body.username).trim(),
+            correlationId,
+            context
+        });
     }
 });
 
@@ -243,18 +187,13 @@ app.http('NativePasswordResetContinue', {
 
         const grantType = String(normalizedBody.grantType).toLowerCase();
 
-        try {
-            return await performPasswordResetContinue({
-                continuationToken: normalizedBody.continuationToken,
-                grantType,
-                code: normalizedBody.code,
-                newPassword: normalizedBody.newPassword,
-                correlationId,
-                context
-            });
-        } catch (error) {
-            const normalized = normalizeNativeAuthError(error, correlationId, context);
-            return failure(normalized.status, normalized.message, correlationId, normalized.info);
-        }
+        return performPasswordResetContinue({
+            continuationToken: normalizedBody.continuationToken,
+            grantType,
+            code: normalizedBody.code,
+            newPassword: normalizedBody.newPassword,
+            correlationId,
+            context
+        });
     }
 });

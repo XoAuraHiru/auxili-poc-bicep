@@ -49,6 +49,15 @@ const signUpStartSchema = {
     additionalProperties: false
 };
 
+const continuationSchema = {
+    type: 'object',
+    properties: {
+        continuationToken: { type: 'string', minLength: 10 }
+    },
+    required: ['continuationToken'],
+    additionalProperties: false
+};
+
 const signUpContinueSchema = {
     type: 'object',
     properties: {
@@ -126,17 +135,10 @@ const passwordResetContinueSchema = {
     ]
 };
 
-export const schemas = {
-    signIn: signInSchema,
-    signUpStart: signUpStartSchema,
-    signUpContinue: signUpContinueSchema,
-    passwordResetStart: passwordResetStartSchema,
-    passwordResetContinue: passwordResetContinueSchema
-};
-
 export const validators = {
     signIn: ajv.compile(signInSchema),
     signUpStart: ajv.compile(signUpStartSchema),
+    signUpChallenge: ajv.compile(continuationSchema),
     signUpContinue: ajv.compile(signUpContinueSchema),
     passwordResetStart: ajv.compile(passwordResetStartSchema),
     passwordResetContinue: ajv.compile(passwordResetContinueSchema)
