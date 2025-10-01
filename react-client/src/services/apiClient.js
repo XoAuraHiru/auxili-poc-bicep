@@ -1,5 +1,28 @@
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?$/, '')
-const subscriptionKey = import.meta.env.VITE_APIM_SUBSCRIPTION_KEY || null
+
+function resolveSubscriptionKey() {
+    const globalTarget = typeof globalThis !== 'undefined' ? globalThis : {};
+    const runtimeKey = globalTarget.__APIM_SUBSCRIPTION_KEY__ ?? globalTarget.APIM_SUBSCRIPTION_KEY ?? null;
+
+    if (runtimeKey) {
+        const normalizedRuntimeKey = String(runtimeKey).trim();
+        if (normalizedRuntimeKey) {
+            return normalizedRuntimeKey;
+        }
+    }
+
+    const env = import.meta.env || {};
+    const envKey = env.APIM_SUBSCRIPTION_KEY ?? env.VITE_APIM_SUBSCRIPTION_KEY ?? null;
+
+    if (envKey) {
+        const normalizedEnvKey = String(envKey).trim();
+        if (normalizedEnvKey) {
+            return normalizedEnvKey;
+        }
+    }
+
+    return null;
+}
 
 if (!apiBaseUrl) {
     console.warn('[apiClient] Missing VITE_API_BASE_URL. Set it in your environment files.')
@@ -20,8 +43,9 @@ function buildHeaders(token, extraHeaders = {}) {
         headers.Authorization = `Bearer ${token}`
     }
 
-    if (subscriptionKey && !headers['Ocp-Apim-Subscription-Key']) {
-        headers['Ocp-Apim-Subscription-Key'] = subscriptionKey
+    const defaultSubscriptionKey = resolveSubscriptionKey()
+    if (defaultSubscriptionKey && !headers['Ocp-Apim-Subscription-Key']) {
+        headers['Ocp-Apim-Subscription-Key'] = defaultSubscriptionKey
     }
 
     return headers
@@ -87,5 +111,5 @@ export function getApiBaseUrl() {
 }
 
 export function getSubscriptionKey() {
-    return subscriptionKey
+    return resolveSubscriptionKey()
 }

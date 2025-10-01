@@ -6,7 +6,7 @@ import {
   passwordSignIn,
   requestAuthUrl,
 } from "../services/authApi.js";
-import { getApiBaseUrl } from "../services/apiClient.js";
+import { getApiBaseUrl, getSubscriptionKey } from "../services/apiClient.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyProfile } from "../services/profileApi.js";
 import TodoTester from "../components/TodoTester.jsx";
@@ -34,9 +34,7 @@ function LoginPage() {
   const { login, setLoading, updateUser, setError: setAuthError } = useAuth();
   const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID || "Not set";
   const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID || "Not set";
-  const hasSubscriptionKey = Boolean(
-    import.meta.env.VITE_APIM_SUBSCRIPTION_KEY
-  );
+  const hasSubscriptionKey = Boolean(getSubscriptionKey());
   const passwordLoginEnabled =
     String(
       import.meta.env.VITE_ENABLE_PASSWORD_SIGNIN ?? "true"

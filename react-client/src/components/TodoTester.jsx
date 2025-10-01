@@ -5,6 +5,7 @@ import {
   getTodo,
   updateTodo,
 } from "../services/todoApi.js";
+import { getSubscriptionKey } from "../services/apiClient.js";
 
 const DEFAULT_TODO_PAYLOAD = `{
   "title": "Demo todo from Auxili UI",
@@ -73,9 +74,13 @@ function TodoTester({
   const [isPending, setIsPending] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [lastError, setLastError] = useState(null);
+  const [subscriptionKey, setSubscriptionKey] = useState(() => {
+    return getSubscriptionKey() || "";
+  });
   const idPrefix = toSlug(title);
   const todoIdFieldId = `${idPrefix}-todo-id`;
   const payloadFieldId = `${idPrefix}-todo-payload`;
+  const subscriptionKeyFieldId = `${idPrefix}-subscription-key`;
 
   const handleAction = async (action) => {
     setIsPending(true);
@@ -85,6 +90,7 @@ function TodoTester({
     try {
       const trimmedId = todoId.trim();
       const needsId = action !== "create" || requireIdForCreate;
+      const resolvedSubscriptionKey = subscriptionKey.trim() || undefined;
 
       if (needsId && !trimmedId) {
         throw new Error("Todo ID is required for this operation.");
@@ -100,20 +106,33 @@ function TodoTester({
 
       switch (action) {
         case "create":
-          response = await createTodo({ todo: parsedPayload, token });
+          response = await createTodo({
+            todo: parsedPayload,
+            token,
+            subscriptionKey: resolvedSubscriptionKey,
+          });
           break;
         case "get":
-          response = await getTodo({ id: trimmedId, token });
+          response = await getTodo({
+            id: trimmedId,
+            token,
+            subscriptionKey: resolvedSubscriptionKey,
+          });
           break;
         case "update":
           response = await updateTodo({
             id: trimmedId,
             todo: parsedPayload,
             token,
+            subscriptionKey: resolvedSubscriptionKey,
           });
           break;
         case "delete":
-          response = await deleteTodo({ id: trimmedId, token });
+          response = await deleteTodo({
+            id: trimmedId,
+            token,
+            subscriptionKey: resolvedSubscriptionKey,
+          });
           break;
         default:
           throw new Error(`Unsupported action: ${action}`);
@@ -152,6 +171,25 @@ function TodoTester({
       </header>
 
       <div className="card__body todo-tester__body">
+        <div className="form-group">
+          <label htmlFor={subscriptionKeyFieldId}>APIM subscription key</label>
+          <input
+            id={subscriptionKeyFieldId}
+            type="text"
+            value={subscriptionKey}
+            onChange={(event) => setSubscriptionKey(event.target.value)}
+            placeholder="Paste your Ocp-Apim-Subscription-Key"
+            autoComplete="off"
+            disabled={isPending}
+          />
+          <p className="muted todo-tester__hint">
+            We'll attach this value to every request as{" "}
+            <code>Ocp-Apim-Subscription-Key</code>. Leave it blank to fall back
+            to any globally provided <code>APIM_SUBSCRIPTION_KEY</code> (or the
+            legacy <code>VITE_APIM_SUBSCRIPTION_KEY</code>).
+          </p>
+        </div>
+
         <div className="form-group">
           <label htmlFor={todoIdFieldId}>Todo ID</label>
           <input

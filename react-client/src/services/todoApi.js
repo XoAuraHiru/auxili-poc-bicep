@@ -13,7 +13,17 @@ function buildTodoPath(id) {
     return `/todo/todos/${normalizedId}`;
 }
 
-export function createTodo({ todo, token, signal } = {}) {
+function buildHeaders(subscriptionKey) {
+    if (!subscriptionKey) {
+        return undefined;
+    }
+
+    return {
+        'Ocp-Apim-Subscription-Key': subscriptionKey,
+    };
+}
+
+export function createTodo({ todo, token, subscriptionKey, signal } = {}) {
     if (!todo || typeof todo !== 'object') {
         throw new Error('A todo object is required.');
     }
@@ -22,20 +32,22 @@ export function createTodo({ todo, token, signal } = {}) {
         method: 'POST',
         body: todo,
         token,
+        headers: buildHeaders(subscriptionKey),
         signal,
     });
 }
 
-export function getTodo({ id, token, signal } = {}) {
+export function getTodo({ id, token, subscriptionKey, signal } = {}) {
     const path = buildTodoPath(id);
     return apiRequest(path, {
         method: 'GET',
         token,
+        headers: buildHeaders(subscriptionKey),
         signal,
     });
 }
 
-export function updateTodo({ id, todo, token, signal } = {}) {
+export function updateTodo({ id, todo, token, subscriptionKey, signal } = {}) {
     if (!todo || typeof todo !== 'object') {
         throw new Error('A todo object is required.');
     }
@@ -45,15 +57,17 @@ export function updateTodo({ id, todo, token, signal } = {}) {
         method: 'PUT',
         body: todo,
         token,
+        headers: buildHeaders(subscriptionKey),
         signal,
     });
 }
 
-export function deleteTodo({ id, token, signal } = {}) {
+export function deleteTodo({ id, token, subscriptionKey, signal } = {}) {
     const path = buildTodoPath(id);
     return apiRequest(path, {
         method: 'DELETE',
         token,
+        headers: buildHeaders(subscriptionKey),
         signal,
     });
 }
