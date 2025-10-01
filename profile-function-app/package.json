@@ -1,0 +1,22 @@
+{
+    "name": "profile-function-app",
+    "version": "1.0.0",
+    "description": "Protected user profile management API with JWT authentication",
+    "type": "module",
+    "main": "src/functions/*.js",
+    "scripts": {
+        "build": "echo \"JavaScript - no build step required\"",
+        "start": "func start --javascript",
+        "deploy": "func azure functionapp publish",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "lint": "echo \"No linter configured\""
+    },
+    "dependencies": {
+        "@azure/functions": "^4.8.0"
+    },
+    "devDependencies": {
+        "@types/node": "18.x",
+        "vitest": "^1.6.0"
+    }
+}

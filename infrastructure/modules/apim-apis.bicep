@@ -19,6 +19,12 @@ param ordersFunctionAppHostName string
 @description('Orders Function App name for key retrieval')
 param ordersFunctionAppName string
 
+@description('Profile Function App hostname')
+param profileFunctionAppHostName string
+
+@description('Profile Function App name for key retrieval')
+param profileFunctionAppName string
+
 @description('Environment')
 param environment string
 
@@ -44,6 +50,10 @@ resource userFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
 
 resource ordersFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
   name: ordersFunctionAppName
+}
+
+resource profileFunctionApp 'Microsoft.Web/sites@2022-09-01' existing = {
+  name: profileFunctionAppName
 }
 
 // Product API
@@ -170,11 +180,13 @@ resource userHealthOperation 'Microsoft.ApiManagement/service/apis/operations@20
 var productFunctionAuthKey = listkeys('${productFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
 var userFunctionAuthKey = listkeys('${userFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
 var ordersFunctionAuthKey = listkeys('${ordersFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
+var profileFunctionAuthKey = listkeys('${profileFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
 
 var functionKeyInjectionWithPlaceholder = '  <inbound>\n    <base />\n    <!-- Function App Authentication -->\n    <set-header name="x-functions-key" exists-action="override">\n      <value>{0}</value>\n    </set-header>'
 var productFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, productFunctionAuthKey)
 var userFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, userFunctionAuthKey)
 var ordersFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, ordersFunctionAuthKey)
+var profileFunctionInjectedInbound = format(functionKeyInjectionWithPlaceholder, profileFunctionAuthKey)
 
 resource productApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
@@ -241,6 +253,87 @@ resource ordersApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-
   parent: ordersApi
   properties: {
     value: replace(protectedApiPolicy, '  <inbound>\n    <base />', ordersFunctionInjectedInbound)
+  }
+}
+
+// Profile API with protected endpoints
+resource profileApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
+  name: 'profile-api'
+  parent: apiManagement
+  properties: {
+    displayName: 'Profile API'
+    description: 'Authenticated profile management backed by Azure Functions.'
+    serviceUrl: 'https://${profileFunctionAppHostName}/api/profile'
+    path: 'profile'
+    protocols: ['https']
+    subscriptionRequired: environment != 'dev'
+    isCurrent: true
+  }
+}
+
+resource getMyProfileOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'profile-get-me'
+  parent: profileApi
+  properties: {
+    displayName: 'Get My Profile'
+    method: 'GET'
+    urlTemplate: '/me'
+  }
+}
+
+resource updateMyProfileOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'profile-update-me'
+  parent: profileApi
+  properties: {
+    displayName: 'Update My Profile'
+    method: 'PUT'
+    urlTemplate: '/me'
+  }
+}
+
+resource deleteMyProfileOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'profile-delete-me'
+  parent: profileApi
+  properties: {
+    displayName: 'Delete My Profile'
+    method: 'DELETE'
+    urlTemplate: '/me'
+  }
+}
+
+resource getProfileSettingsOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'profile-get-settings'
+  parent: profileApi
+  properties: {
+    displayName: 'Get Profile Settings'
+    method: 'GET'
+    urlTemplate: '/settings'
+  }
+}
+
+resource profileHealthOperation 'Microsoft.ApiManagement/service/apis/operations@2023-05-01-preview' = {
+  name: 'profile-health'
+  parent: profileApi
+  properties: {
+    displayName: 'Profile Health'
+    method: 'GET'
+    urlTemplate: '/health'
+  }
+}
+
+resource profileApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
+  name: 'policy'
+  parent: profileApi
+  properties: {
+    value: replace(protectedApiPolicy, '  <inbound>\n    <base />', profileFunctionInjectedInbound)
+  }
+}
+
+resource profileHealthPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2023-05-01-preview' = {
+  name: 'policy'
+  parent: profileHealthOperation
+  properties: {
+    value: publicApiPolicy
   }
 }
 
@@ -373,3 +466,4 @@ output productApiName string = productApi.name
 output userApiName string = userApi.name
 output ordersApiName string = ordersApi.name
 output authApiName string = authApi.name
+output profileApiName string = profileApi.name

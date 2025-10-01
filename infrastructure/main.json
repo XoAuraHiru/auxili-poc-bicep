@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.37.4.10188",
-      "templateHash": "8595883659332059007"
+      "templateHash": "14853686923595651360"
     }
   },
   "parameters": {
@@ -65,15 +65,18 @@
       "productStorage": "[format('st{0}prod{1}{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "userStorage": "[format('st{0}user{1}{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "ordersStorage": "[format('st{0}ord{1}{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
+      "profileStorage": "[format('st{0}prof{1}{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "productFunction": "[format('func-{0}-product-{1}-{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "userFunction": "[format('func-{0}-user-{1}-{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "ordersFunction": "[format('func-{0}-orders-{1}-{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
+      "profileFunction": "[format('func-{0}-profile-{1}-{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "appInsights": "[format('ai-{0}-{1}-{2}', parameters('orgName'), parameters('projectName'), parameters('environment'))]",
       "logAnalytics": "[format('log-{0}-{1}-{2}', parameters('orgName'), parameters('projectName'), parameters('environment'))]",
       "apim": "[format('apim-{0}-{1}-{2}', parameters('orgName'), parameters('environment'), variables('uniqueSuffix'))]",
       "productPlan": "[format('plan-{0}-product-{1}', parameters('orgName'), parameters('environment'))]",
       "userPlan": "[format('plan-{0}-user-{1}', parameters('orgName'), parameters('environment'))]",
-      "ordersPlan": "[format('plan-{0}-orders-v3-{1}', parameters('orgName'), parameters('environment'))]"
+      "ordersPlan": "[format('plan-{0}-orders-v3-{1}', parameters('orgName'), parameters('environment'))]",
+      "profilePlan": "[format('plan-{0}-profile-{1}', parameters('orgName'), parameters('environment'))]"
     },
     "envConfig": {
       "dev": {
@@ -484,6 +487,129 @@
           },
           "storageAccountName": {
             "value": "[variables('naming').ordersStorage]"
+          },
+          "redundancy": {
+            "value": "[variables('currentConfig').storageRedundancy]"
+          },
+          "enablePrivateEndpoints": {
+            "value": "[variables('currentConfig').enablePrivateEndpoints]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "7699521651961588571"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the storage account"
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the storage account"
+              }
+            },
+            "redundancy": {
+              "type": "string",
+              "defaultValue": "Standard_LRS",
+              "metadata": {
+                "description": "Storage redundancy type"
+              }
+            },
+            "enablePrivateEndpoints": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable private endpoints"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-01-01",
+              "name": "[parameters('storageAccountName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('redundancy')]"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": true,
+                "publicNetworkAccess": "[if(parameters('enablePrivateEndpoints'), 'Disabled', 'Enabled')]",
+                "encryption": {
+                  "services": {
+                    "blob": {
+                      "enabled": true
+                    },
+                    "file": {
+                      "enabled": true
+                    },
+                    "queue": {
+                      "enabled": true
+                    },
+                    "table": {
+                      "enabled": true
+                    }
+                  }
+                },
+                "networkAcls": "[if(parameters('enablePrivateEndpoints'), createObject('defaultAction', 'Deny', 'bypass', 'AzureServices'), createObject('defaultAction', 'Allow'))]"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Storage"
+              }
+            }
+          ],
+          "outputs": {
+            "storageAccountName": {
+              "type": "string",
+              "value": "[parameters('storageAccountName')]"
+            },
+            "storageAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "profileStorage",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('naming').profileStorage]"
           },
           "redundancy": {
             "value": "[variables('currentConfig').storageRedundancy]"
@@ -1062,6 +1188,242 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'appInsights')]",
         "[resourceId('Microsoft.Resources/deployments', 'userStorage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "profileFunction",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "functionAppName": {
+            "value": "[variables('naming').profileFunction]"
+          },
+          "appServicePlanName": {
+            "value": "[variables('naming').profilePlan]"
+          },
+          "appServicePlanSku": {
+            "value": "[variables('currentConfig').functionAppSku]"
+          },
+          "appServicePlanTier": {
+            "value": "[variables('currentConfig').functionAppTier]"
+          },
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'profileStorage'), '2022-09-01').outputs.storageAccountName.value]"
+          },
+          "appInsightsConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appInsights'), '2022-09-01').outputs.connectionString.value]"
+          },
+          "appInsightsInstrumentationKey": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appInsights'), '2022-09-01').outputs.instrumentationKey.value]"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.37.4.10188",
+              "templateHash": "9735585876568109819"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Location for the Function App"
+              }
+            },
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Function App"
+              }
+            },
+            "appServicePlanName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the App Service Plan"
+              }
+            },
+            "appServicePlanSku": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan SKU"
+              }
+            },
+            "appServicePlanTier": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan tier"
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage Account name for Function App"
+              }
+            },
+            "appInsightsConnectionString": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights connection string"
+              }
+            },
+            "appInsightsInstrumentationKey": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights instrumentation key"
+              }
+            },
+            "environment": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment tag"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2022-09-01",
+              "name": "[parameters('appServicePlanName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('appServicePlanSku')]",
+                "tier": "[parameters('appServicePlanTier')]"
+              },
+              "kind": "functionapp",
+              "properties": {
+                "reserved": true,
+                "elasticScaleEnabled": "[equals(parameters('appServicePlanTier'), 'ElasticPremium')]"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Compute"
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2022-09-01",
+              "name": "[parameters('functionAppName')]",
+              "location": "[parameters('location')]",
+              "kind": "functionapp,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "httpsOnly": true,
+                "clientAffinityEnabled": false,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|20",
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "alwaysOn": "[not(equals(parameters('appServicePlanTier'), 'Dynamic'))]",
+                  "scmMinTlsVersion": "1.2",
+                  "use32BitWorkerProcess": false,
+                  "appSettings": [
+                    {
+                      "name": "FUNCTIONS_EXTENSION_VERSION",
+                      "value": "~4"
+                    },
+                    {
+                      "name": "FUNCTIONS_WORKER_RUNTIME",
+                      "value": "node"
+                    },
+                    {
+                      "name": "AzureWebJobsStorage",
+                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                    },
+                    {
+                      "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                    },
+                    {
+                      "name": "WEBSITE_CONTENTSHARE",
+                      "value": "[toLower(parameters('functionAppName'))]"
+                    },
+                    {
+                      "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+                      "value": "[parameters('appInsightsInstrumentationKey')]"
+                    },
+                    {
+                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                      "value": "[parameters('appInsightsConnectionString')]"
+                    },
+                    {
+                      "name": "WEBSITE_RUN_FROM_PACKAGE",
+                      "value": "1"
+                    },
+                    {
+                      "name": "NODE_ENV",
+                      "value": "[parameters('environment')]"
+                    }
+                  ]
+                },
+                "publicNetworkAccess": "Enabled"
+              },
+              "tags": {
+                "Environment": "[parameters('environment')]",
+                "ResourceType": "Function"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
+              ]
+            },
+            {
+              "condition": "[equals(parameters('environment'), 'dev')]",
+              "type": "Microsoft.Web/sites/config",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'web')]",
+              "properties": {
+                "cors": {
+                  "allowedOrigins": [
+                    "*"
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "functionAppName": {
+              "type": "string",
+              "value": "[parameters('functionAppName')]"
+            },
+            "functionAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            },
+            "functionAppHostName": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-09-01').defaultHostName]"
+            },
+            "functionAppPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-09-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'appInsights')]",
+        "[resourceId('Microsoft.Resources/deployments', 'profileStorage')]"
       ]
     },
     {
@@ -1740,6 +2102,12 @@
           "ordersFunctionAppName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ordersFunction'), '2022-09-01').outputs.functionAppName.value]"
           },
+          "profileFunctionAppHostName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'profileFunction'), '2022-09-01').outputs.functionAppHostName.value]"
+          },
+          "profileFunctionAppName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'profileFunction'), '2022-09-01').outputs.functionAppName.value]"
+          },
           "environment": {
             "value": "[parameters('environment')]"
           },
@@ -1757,7 +2125,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.37.4.10188",
-              "templateHash": "14457063954808563954"
+              "templateHash": "13141512895438199839"
             }
           },
           "parameters": {
@@ -1801,6 +2169,18 @@
               "type": "string",
               "metadata": {
                 "description": "Orders Function App name for key retrieval"
+              }
+            },
+            "profileFunctionAppHostName": {
+              "type": "string",
+              "metadata": {
+                "description": "Profile Function App hostname"
+              }
+            },
+            "profileFunctionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Profile Function App name for key retrieval"
               }
             },
             "environment": {
@@ -2048,6 +2428,109 @@
             {
               "type": "Microsoft.ApiManagement/service/apis",
               "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('apimName'), 'profile-api')]",
+              "properties": {
+                "displayName": "Profile API",
+                "description": "Authenticated profile management backed by Azure Functions.",
+                "serviceUrl": "[format('https://{0}/api/profile', parameters('profileFunctionAppHostName'))]",
+                "path": "profile",
+                "protocols": [
+                  "https"
+                ],
+                "subscriptionRequired": "[not(equals(parameters('environment'), 'dev'))]",
+                "isCurrent": true
+              }
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'profile-get-me')]",
+              "properties": {
+                "displayName": "Get My Profile",
+                "method": "GET",
+                "urlTemplate": "/me"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'profile-update-me')]",
+              "properties": {
+                "displayName": "Update My Profile",
+                "method": "PUT",
+                "urlTemplate": "/me"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'profile-delete-me')]",
+              "properties": {
+                "displayName": "Delete My Profile",
+                "method": "DELETE",
+                "urlTemplate": "/me"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'profile-get-settings')]",
+              "properties": {
+                "displayName": "Get Profile Settings",
+                "method": "GET",
+                "urlTemplate": "/settings"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'profile-health')]",
+              "properties": {
+                "displayName": "Profile Health",
+                "method": "GET",
+                "urlTemplate": "/health"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/policies",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}', parameters('apimName'), 'profile-api', 'policy')]",
+              "properties": {
+                "value": "[replace(parameters('protectedApiPolicy'), '  <inbound>\n    <base />', format(variables('functionKeyInjectionWithPlaceholder'), listkeys(format('{0}/host/default', resourceId('Microsoft.Web/sites', parameters('profileFunctionAppName'))), '2022-09-01').functionKeys.default))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimName'), 'profile-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations/policies",
+              "apiVersion": "2023-05-01-preview",
+              "name": "[format('{0}/{1}/{2}/{3}', parameters('apimName'), 'profile-api', 'profile-health', 'policy')]",
+              "properties": {
+                "value": "[parameters('publicApiPolicy')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis/operations', parameters('apimName'), 'profile-api', 'profile-health')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis",
+              "apiVersion": "2023-05-01-preview",
               "name": "[format('{0}/{1}', parameters('apimName'), 'auth-api')]",
               "properties": {
                 "displayName": "Authentication API",
@@ -2215,6 +2698,10 @@
             "authApiName": {
               "type": "string",
               "value": "auth-api"
+            },
+            "profileApiName": {
+              "type": "string",
+              "value": "profile-api"
             }
           }
         }
@@ -2224,6 +2711,7 @@
         "[resourceId('Microsoft.Resources/deployments', 'authPolicies')]",
         "[resourceId('Microsoft.Resources/deployments', 'ordersFunction')]",
         "[resourceId('Microsoft.Resources/deployments', 'productFunction')]",
+        "[resourceId('Microsoft.Resources/deployments', 'profileFunction')]",
         "[resourceId('Microsoft.Resources/deployments', 'userFunction')]"
       ]
     }
@@ -2245,6 +2733,10 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ordersFunction'), '2022-09-01').outputs.functionAppName.value]"
     },
+    "profileFunctionAppName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'profileFunction'), '2022-09-01').outputs.functionAppName.value]"
+    },
     "apimName": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2022-09-01').outputs.apimName.value]"
@@ -2264,6 +2756,10 @@
     "ordersFunctionAppHostName": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ordersFunction'), '2022-09-01').outputs.functionAppHostName.value]"
+    },
+    "profileFunctionAppHostName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'profileFunction'), '2022-09-01').outputs.functionAppHostName.value]"
     },
     "appInsightsName": {
       "type": "string",

@@ -25,6 +25,9 @@ param appInsightsInstrumentationKey string
 @description('Environment tag')
 param environment string
 
+@description('Additional app settings to configure on the Function App')
+param additionalAppSettings array = []
+
 // App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2022-09-01' = {
   name: appServicePlanName
@@ -63,7 +66,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
       alwaysOn: appServicePlanTier != 'Dynamic'
       scmMinTlsVersion: '1.2'
       use32BitWorkerProcess: false
-      appSettings: [
+      appSettings: concat([
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
           value: '~4'
@@ -100,7 +103,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'NODE_ENV'
           value: environment
         }
-      ]
+      ], additionalAppSettings)
     }
     publicNetworkAccess: 'Enabled'
   }

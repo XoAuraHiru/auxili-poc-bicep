@@ -4,13 +4,14 @@ This guide walks through the standalone Bicep assets under `infrastructure-nativ
 
 ## 1. Architecture at a Glance
 
-- **Function apps**: `native-auth-function-app`, `product-function-app-v4`, `user-function-app-v4`, and `orders-function-app-v3` expose HTTPS endpoints secured by APIM.
+- **Function apps**: `native-auth-function-app`, `product-function-app-v4`, `user-function-app-v4`, `orders-function-app-v3`, and the new `profile-function-app` expose HTTPS endpoints secured by APIM.
 - **API Management gateway**: Fronts every function app, applies JWT validation, injects the Azure Functions host keys, enforces rate limiting, and normalises headers for downstream services.
 - **Entra ID (Azure AD)**: Issues access tokens for the native clients. The application ID, tenant ID, issuer, and JWKS endpoint feed directly into the policy module.
 - **Bicep modules** located in `infrastructure-native/modules/`:
   - `auth-policies.bicep` – produces reusable policy XML fragments for protected vs. public APIs.
   - `apim.bicep` – provisions the dedicated API Management instance with baseline global policies.
   - `native-auth-apim.bicep` – defines the native auth API surface and consumes the shared policy outputs.
+  - `profile-apim.bicep` – publishes the profile endpoints with the protected policy applied.
   - `function-app.bicep`, `storage.bicep`, `app-insights.bicep` – supporting resources for the function workload.
   - `main.bicep` – environment-specific entry point that wires all modules together and invokes `auth-policies.bicep` for this standalone slice.
 
@@ -81,6 +82,34 @@ Secrets such as Entra ID client secrets, native auth keys, or Function App host 
 
 ## 5. Deployment Steps
 
+### Option A – One-command PowerShell deployment
+
+For Windows operators you can now deploy the native slice **and** publish the function apps in a single run using `infrastructure-native/scripts/deploy-native.ps1`:
+
+```powershell
+pwsh infrastructure-native/scripts/deploy-native.ps1 `
+   -ResourceGroup rg-auxili-poc-v2-dev `
+   -Environment dev `
+   -Location "Southeast Asia"
+```
+
+This script will:
+
+1. Ensure the resource group exists (creating it when `-Location` is provided).
+2. Deploy `infrastructure-native/main.bicep` with the matching parameter file (`parameters/<environment>.parameters.json`).
+3. Install npm dependencies for `native-auth-function-app` and `profile-function-app` and publish them via Azure Functions Core Tools.
+
+Additional switches:
+
+- `-SkipInfrastructure` to reuse an existing deployment and just publish function apps.
+- `-SkipFunctions` to provision infrastructure only.
+- `-RunTests` to execute `npm run test` for `profile-function-app` before publishing.
+- `-ParametersFile` to point at a non-standard parameter file (handy for customised auth settings).
+
+Ensure you are logged in (`az login`) and have Azure Functions Core Tools v4 installed before running the script.
+
+### Option B – Manual CLI commands
+
 > All commands assume the repository root as the working directory and Azure CLI `>= 2.53`. Replace names with the environment you are targeting (`dev`, `staging`, `prod`).
 
 1. **Provision / update the resource group**:
@@ -120,10 +149,16 @@ Secrets such as Entra ID client secrets, native auth keys, or Function App host 
    func azure functionapp publish func-auxili-user-dev-ad7stftg
    cd ..
 
+   cd profile-function-app
+   func azure functionapp publish func-auxili-profile-dev-<suffix>
+   cd ..
+
    cd product-function-app-v4
    func azure functionapp publish func-auxili-product-dev-ad7stftg
    cd ..
    ```
+
+   Replace `<suffix>` with the unique identifier emitted by the Bicep deployment outputs (for example, `func-auxili-profile-dev-1b2c3d4e`).
 
 5. **Configure application settings** for each function app to align with Entra ID and native auth:
 

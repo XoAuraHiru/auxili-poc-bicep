@@ -30,11 +30,13 @@ var naming = {
   productStorage: 'st${orgName}prod${environment}${uniqueSuffix}'
   userStorage: 'st${orgName}user${environment}${uniqueSuffix}'
   ordersStorage: 'st${orgName}ord${environment}${uniqueSuffix}'
+  profileStorage: 'st${orgName}prof${environment}${uniqueSuffix}'
   
   // Function Apps (must be globally unique)
   productFunction: 'func-${orgName}-product-${environment}-${uniqueSuffix}'
   userFunction: 'func-${orgName}-user-${environment}-${uniqueSuffix}'
   ordersFunction: 'func-${orgName}-orders-${environment}-${uniqueSuffix}'
+  profileFunction: 'func-${orgName}-profile-${environment}-${uniqueSuffix}'
   
   // Other resources
   appInsights: 'ai-${orgName}-${projectName}-${environment}'
@@ -45,6 +47,7 @@ var naming = {
   productPlan: 'plan-${orgName}-product-${environment}'
   userPlan: 'plan-${orgName}-user-${environment}'
   ordersPlan: 'plan-${orgName}-orders-v3-${environment}'
+  profilePlan: 'plan-${orgName}-profile-${environment}'
 }
 
 // Environment-specific configuration
@@ -143,6 +146,17 @@ module ordersStorage 'modules/storage.bicep' = {
   }
 }
 
+module profileStorage 'modules/storage.bicep' = {
+  name: 'profileStorage'
+  params: {
+    location: location
+    storageAccountName: naming.profileStorage
+    redundancy: currentConfig.storageRedundancy
+    enablePrivateEndpoints: currentConfig.enablePrivateEndpoints
+    environment: environment
+  }
+}
+
 // Product Function App
 module productFunction 'modules/function-app.bicep' = {
   name: 'productFunction'
@@ -175,6 +189,21 @@ module userFunction 'modules/function-app.bicep' = {
     environment: environment
   }
   // Implicit dependency via referenced outputs
+}
+
+module profileFunction 'modules/function-app.bicep' = {
+  name: 'profileFunction'
+  params: {
+    location: location
+    functionAppName: naming.profileFunction
+    appServicePlanName: naming.profilePlan
+    appServicePlanSku: currentConfig.functionAppSku
+    appServicePlanTier: currentConfig.functionAppTier
+    storageAccountName: profileStorage.outputs.storageAccountName
+    appInsightsConnectionString: appInsights.outputs.connectionString
+    appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
+    environment: environment
+  }
 }
 
 // Orders Function App (v3)
@@ -241,6 +270,8 @@ module apimApis 'modules/apim-apis.bicep' = {
     userFunctionAppName: userFunction.outputs.functionAppName
     ordersFunctionAppHostName: ordersFunction.outputs.functionAppHostName
     ordersFunctionAppName: ordersFunction.outputs.functionAppName
+    profileFunctionAppHostName: profileFunction.outputs.functionAppHostName
+    profileFunctionAppName: profileFunction.outputs.functionAppName
     environment: environment
     protectedApiPolicy: authPolicies.outputs.protectedApiPolicy
     publicApiPolicy: authPolicies.outputs.publicApiPolicy
@@ -252,11 +283,13 @@ output resourceGroupName string = resourceGroup().name
 output productFunctionAppName string = productFunction.outputs.functionAppName
 output userFunctionAppName string = userFunction.outputs.functionAppName
 output ordersFunctionAppName string = ordersFunction.outputs.functionAppName
+output profileFunctionAppName string = profileFunction.outputs.functionAppName
 output apimName string = apim.outputs.apimName
 output apimGatewayUrl string = apim.outputs.gatewayUrl
 output productFunctionAppHostName string = productFunction.outputs.functionAppHostName
 output userFunctionAppHostName string = userFunction.outputs.functionAppHostName
 output ordersFunctionAppHostName string = ordersFunction.outputs.functionAppHostName
+output profileFunctionAppHostName string = profileFunction.outputs.functionAppHostName
 output appInsightsName string = appInsights.outputs.appInsightsName
 
 // Authentication outputs

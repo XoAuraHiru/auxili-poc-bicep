@@ -59,10 +59,17 @@ param rateLimitCalls int = 120
 @description('Renewal window length (seconds) for the rate limit policy.')
 param rateLimitRenewalSeconds int = 60
 
+@description('Native auth tenant subdomain used to construct CIAM native auth endpoints.')
+param nativeAuthTenantSubdomain string = ''
+
+@description('Space-delimited scopes requested during native auth flows.')
+param nativeAuthScopes string = 'openid profile email offline_access'
+
 var normalizedOrg = toLower(replace(replace(orgName, '-', ''), '_', ''))
 var normalizedService = toLower(replace(replace(serviceCode, '-', ''), '_', ''))
 var uniqueSuffix = substring(uniqueString(resourceGroup().id, normalizedService), 0, 6)
 var envLower = toLower(environment)
+var nativeAuthBaseUrl = empty(nativeAuthTenantSubdomain) ? '' : 'https://${nativeAuthTenantSubdomain}.ciamlogin.com/${nativeAuthTenantSubdomain}.onmicrosoft.com'
 
 var naming = {
   storage: 'st${normalizedOrg}${normalizedService}${envLower}${uniqueSuffix}'
@@ -71,6 +78,9 @@ var naming = {
   appInsights: 'ai-${normalizedOrg}-${normalizedService}-${envLower}'
   logAnalytics: 'log-${normalizedOrg}-${normalizedService}-${envLower}'
   apim: 'apim-${normalizedOrg}-${normalizedService}-${envLower}-${uniqueSuffix}'
+  profileStorage: 'st${normalizedOrg}${normalizedService}prof${envLower}${uniqueSuffix}'
+  profileFunctionApp: 'func-${normalizedOrg}-${normalizedService}-profile-${envLower}-${uniqueSuffix}'
+  profileAppServicePlan: 'plan-${normalizedOrg}-${normalizedService}-profile-${envLower}'
 }
 
 var envConfig = {
@@ -141,6 +151,17 @@ module nativeAuthStorage 'modules/storage.bicep' = {
   }
 }
 
+module profileStorage 'modules/storage.bicep' = {
+  name: 'profileStorage'
+  params: {
+    location: location
+    storageAccountName: naming.profileStorage
+    redundancy: currentConfig.storageRedundancy
+    enablePrivateEndpoints: enablePrivateEndpoints
+    environment: envLower
+  }
+}
+
 // Linux Function App hosting the native authentication API
 module nativeAuthFunction 'modules/function-app.bicep' = {
   name: 'nativeAuthFunction'
@@ -151,6 +172,57 @@ module nativeAuthFunction 'modules/function-app.bicep' = {
     appServicePlanSku: currentConfig.functionAppSku
     appServicePlanTier: currentConfig.functionAppTier
     storageAccountName: nativeAuthStorage.outputs.storageAccountName
+    appInsightsConnectionString: appInsights.outputs.connectionString
+    appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
+    environment: envLower
+    additionalAppSettings: concat([
+      {
+        name: 'NATIVE_AUTH_ENABLED'
+        value: toLower(string(enableAuth))
+      }
+      {
+        name: 'NATIVE_AUTH_CLIENT_ID'
+        value: applicationId
+      }
+      {
+        name: 'ENTRA_NATIVE_CLIENT_ID'
+        value: applicationId
+      }
+      {
+        name: 'NATIVE_AUTH_TENANT_ID'
+        value: tenantId
+      }
+      {
+        name: 'NATIVE_AUTH_SCOPES'
+        value: nativeAuthScopes
+      }
+    ], empty(nativeAuthTenantSubdomain) ? [] : [
+      {
+        name: 'NATIVE_AUTH_TENANT_SUBDOMAIN'
+        value: nativeAuthTenantSubdomain
+      }
+      {
+        name: 'ENTRA_TENANT_SUBDOMAIN'
+        value: nativeAuthTenantSubdomain
+      }
+    ], empty(nativeAuthBaseUrl) ? [] : [
+      {
+        name: 'NATIVE_AUTH_BASE_URL'
+        value: nativeAuthBaseUrl
+      }
+    ])
+  }
+}
+
+module profileFunction 'modules/function-app.bicep' = {
+  name: 'profileFunction'
+  params: {
+    location: location
+    functionAppName: naming.profileFunctionApp
+    appServicePlanName: naming.profileAppServicePlan
+    appServicePlanSku: currentConfig.functionAppSku
+    appServicePlanTier: currentConfig.functionAppTier
+    storageAccountName: profileStorage.outputs.storageAccountName
     appInsightsConnectionString: appInsights.outputs.connectionString
     appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
     environment: envLower
@@ -200,6 +272,17 @@ module nativeAuthApi 'modules/native-auth-apim.bicep' = {
   }
 }
 
+module profileApi 'modules/profile-apim.bicep' = {
+  name: 'profileApi'
+  params: {
+    apimName: nativeAuthApim.outputs.apimName
+    profileFunctionAppHostName: profileFunction.outputs.functionAppHostName
+    profileFunctionAppName: profileFunction.outputs.functionAppName
+    protectedApiPolicy: nativeAuthPolicies.outputs.protectedApiPolicy
+    publicApiPolicy: nativeAuthPolicies.outputs.publicApiPolicy
+  }
+}
+
 // Useful outputs for deployment scripts and clients
 output functionAppName string = nativeAuthFunction.outputs.functionAppName
 output functionAppHostName string = nativeAuthFunction.outputs.functionAppHostName
@@ -208,3 +291,6 @@ output appInsightsName string = appInsights.outputs.appInsightsName
 output apimName string = nativeAuthApim.outputs.apimName
 output apimGatewayUrl string = nativeAuthApim.outputs.gatewayUrl
 output logAnalyticsWorkspaceId string = logAnalytics.id
+output profileFunctionAppName string = profileFunction.outputs.functionAppName
+output profileFunctionAppHostName string = profileFunction.outputs.functionAppHostName
+output profileApiName string = profileApi.outputs.profileApiName

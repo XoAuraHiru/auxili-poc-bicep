@@ -19,6 +19,31 @@
         },
         "enablePrivateEndpoints": {
             "value": false
+        },
+        "enableAuth": {
+            "value": true
+        },
+        "applicationId": {
+            "value": "61b8e52d-f8f2-4564-a6b3-6cbd84af4c1c"
+        },
+        "tenantId": {
+            "value": "f2462dde-0b2e-42e2-8b61-0a40abc48771"
+        },
+        "issuerUrl": {
+            "value": "https://auxiliumdev.ciamlogin.com/auxiliumdev.onmicrosoft.com/v2.0"
+        },
+        "jwksUri": {
+            "value": "https://auxiliumdev.ciamlogin.com/auxiliumdev.onmicrosoft.com/discovery/v2.0/keys"
+        },
+        "allowedOrigins": {
+            "value": [
+                "http://localhost:3000",
+                "https://oauth.pstmn.io",
+                "https://auxili-poc-bicep.vercel.app"
+            ]
+        },
+        "nativeAuthTenantSubdomain": {
+            "value": "auxiliumdev"
         }
     }
 }
