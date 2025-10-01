@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay.jsx";
 import {
@@ -8,14 +8,26 @@ import {
 } from "../services/authApi.js";
 import { getApiBaseUrl } from "../services/apiClient.js";
 import { useAuth } from "../hooks/useAuth.js";
+import { getMyProfile } from "../services/profileApi.js";
+
+const formatJson = (value) => {
+  if (!value) return null;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return typeof value === "string" ? value : String(value);
+  }
+};
 
 function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
+  const [isRunningAccessCheck, setIsRunningAccessCheck] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formCorrelationId, setFormCorrelationId] = useState(null);
+  const [accessCheckResult, setAccessCheckResult] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
   const { login, setLoading, updateUser, setError: setAuthError } = useAuth();
@@ -29,6 +41,37 @@ function LoginPage() {
       import.meta.env.VITE_ENABLE_PASSWORD_SIGNIN ?? "true"
     ).toLowerCase() !== "false";
   const isDevBuild = Boolean(import.meta.env.DEV);
+
+  const accessCheckSummary = useMemo(() => {
+    if (!accessCheckResult) {
+      return null;
+    }
+
+    const { status, checkedAt } = accessCheckResult;
+    if (status === "secured") {
+      return {
+        tone: "success",
+        message:
+          "Profile endpoint rejected unauthenticated access (401 Unauthorized).",
+        timestamp: checkedAt,
+      };
+    }
+
+    if (status === "unexpected-success") {
+      return {
+        tone: "warning",
+        message:
+          "Profile endpoint responded without authentication! Investigate immediately.",
+        timestamp: checkedAt,
+      };
+    }
+
+    return {
+      tone: "error",
+      message: "Profile endpoint call failed in an unexpected way.",
+      timestamp: checkedAt,
+    };
+  }, [accessCheckResult]);
 
   const handleSignIn = async () => {
     try {
@@ -145,6 +188,37 @@ function LoginPage() {
     }
   };
 
+  const handleProfileAccessCheck = async () => {
+    setIsRunningAccessCheck(true);
+    setAccessCheckResult(null);
+
+    try {
+      const response = await getMyProfile();
+      setAccessCheckResult({
+        status: "unexpected-success",
+        payload: response,
+        error: null,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      setAccessCheckResult({
+        status: error?.status === 401 ? "secured" : "error",
+        payload: null,
+        error: {
+          status: error?.status ?? error?.data?.statusCode ?? null,
+          message:
+            error?.data?.message ||
+            error?.message ||
+            "Request failed. See details below.",
+          details: error?.data ?? null,
+        },
+        checkedAt: new Date().toISOString(),
+      });
+    } finally {
+      setIsRunningAccessCheck(false);
+    }
+  };
+
   const showLoading =
     isRedirecting || (passwordLoginEnabled && isPasswordSubmitting);
   const loadingMessage = isRedirecting
@@ -241,6 +315,60 @@ function LoginPage() {
             <code>password123</code>
           </p>
         </div>
+      </div>
+
+      <div className="card card--centered">
+        <h2>Profile API access check</h2>
+        <p className="muted">
+          Run this probe to confirm that the profile endpoints reject requests
+          that are missing a bearer token. For the POC we expect a 401 when
+          calling <code>GET /profile/me</code> without authenticating first.
+        </p>
+
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={handleProfileAccessCheck}
+            disabled={isRunningAccessCheck}
+          >
+            {isRunningAccessCheck
+              ? "Calling profile endpoint..."
+              : "Run unauthorized access check"}
+          </button>
+        </div>
+
+        {accessCheckSummary && (
+          <div
+            className={`access-check-message access-check-message--${accessCheckSummary.tone}`}
+            role="status"
+          >
+            <p>{accessCheckSummary.message}</p>
+            {accessCheckSummary.timestamp && (
+              <p className="muted">
+                Checked at:{" "}
+                {new Date(accessCheckSummary.timestamp).toLocaleString()}
+              </p>
+            )}
+          </div>
+        )}
+
+        {accessCheckResult?.error && (
+          <pre className="code-block">
+            <code>{formatJson(accessCheckResult.error)}</code>
+          </pre>
+        )}
+
+        {accessCheckResult?.payload && (
+          <>
+            <p className="error-message" role="alert">
+              Profile endpoint returned data without requiring authentication.
+            </p>
+            <pre className="code-block">
+              <code>{formatJson(accessCheckResult.payload)}</code>
+            </pre>
+          </>
+        )}
       </div>
       {isDevBuild && (
         <div className="dev-environment-details">

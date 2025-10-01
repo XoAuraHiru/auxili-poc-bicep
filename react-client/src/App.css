@@ -90,8 +90,10 @@
 
 .page--auth {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 1.75rem;
   min-height: min(70vh, 640px);
 }
 
@@ -321,6 +323,33 @@
   background: rgba(239, 68, 68, 0.12);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
+}
+
+.access-check-message {
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid transparent;
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+}
+
+.access-check-message--success {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #166534;
+}
+
+.access-check-message--warning {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #92400e;
+}
+
+.access-check-message--error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #991b1b;
 }
 
 .error-block {
