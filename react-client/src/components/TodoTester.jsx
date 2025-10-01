@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createTodo,
   deleteTodo,
   getTodo,
   updateTodo,
 } from "../services/todoApi.js";
-import { getSubscriptionKey } from "../services/apiClient.js";
+import {
+  getSubscriptionKey,
+  persistSubscriptionKey,
+} from "../services/apiClient.js";
 
 const DEFAULT_TODO_PAYLOAD = `{
   "title": "Demo todo from Auxili UI",
@@ -81,6 +84,24 @@ function TodoTester({
   const todoIdFieldId = `${idPrefix}-todo-id`;
   const payloadFieldId = `${idPrefix}-todo-payload`;
   const subscriptionKeyFieldId = `${idPrefix}-subscription-key`;
+  const trimmedSubscriptionKey = subscriptionKey.trim();
+
+  useEffect(() => {
+    persistSubscriptionKey(trimmedSubscriptionKey || null);
+  }, [trimmedSubscriptionKey]);
+
+  const subscriptionKeyStatus = useMemo(() => {
+    if (trimmedSubscriptionKey) {
+      return { tone: "ready" };
+    }
+
+    const fallback = getSubscriptionKey();
+    if (fallback) {
+      return { tone: "using-fallback" };
+    }
+
+    return { tone: "missing" };
+  }, [trimmedSubscriptionKey]);
 
   const handleAction = async (action) => {
     setIsPending(true);
@@ -90,7 +111,8 @@ function TodoTester({
     try {
       const trimmedId = todoId.trim();
       const needsId = action !== "create" || requireIdForCreate;
-      const resolvedSubscriptionKey = subscriptionKey.trim() || undefined;
+      const resolvedSubscriptionKey =
+        trimmedSubscriptionKey || getSubscriptionKey() || undefined;
 
       if (needsId && !trimmedId) {
         throw new Error("Todo ID is required for this operation.");
@@ -188,6 +210,21 @@ function TodoTester({
             to any globally provided <code>APIM_SUBSCRIPTION_KEY</code> (or the
             legacy <code>VITE_APIM_SUBSCRIPTION_KEY</code>).
           </p>
+          {!trimmedSubscriptionKey &&
+            subscriptionKeyStatus.tone === "missing" && (
+              <p className="todo-tester__alert" role="alert">
+                No subscription key detected. Add one above or your requests
+                will be rejected with 401.
+              </p>
+            )}
+          {!trimmedSubscriptionKey &&
+            subscriptionKeyStatus.tone === "using-fallback" && (
+              <p className="muted todo-tester__hint">
+                A global subscription key was found (runtime or stored). Leave
+                this field blank to keep using it, or paste a different key to
+                override.
+              </p>
+            )}
         </div>
 
         <div className="form-group">

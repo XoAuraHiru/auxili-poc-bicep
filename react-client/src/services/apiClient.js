@@ -1,27 +1,70 @@
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?$/, '')
 
+const SUBSCRIPTION_KEY_STORAGE_KEY = 'auxili.apim.subscriptionKey'
+
+function readStoredSubscriptionKey() {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+        return null
+    }
+
+    try {
+        const storedValue = window.localStorage.getItem(SUBSCRIPTION_KEY_STORAGE_KEY)
+        if (!storedValue) {
+            return null
+        }
+
+        const normalized = storedValue.trim()
+        return normalized || null
+    } catch (error) {
+        console.warn('[apiClient] Unable to read stored subscription key:', error)
+        return null
+    }
+}
+
+function writeStoredSubscriptionKey(value) {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+        return
+    }
+
+    try {
+        if (!value) {
+            window.localStorage.removeItem(SUBSCRIPTION_KEY_STORAGE_KEY)
+            return
+        }
+
+        window.localStorage.setItem(SUBSCRIPTION_KEY_STORAGE_KEY, String(value).trim())
+    } catch (error) {
+        console.warn('[apiClient] Unable to persist subscription key:', error)
+    }
+}
+
 function resolveSubscriptionKey() {
-    const globalTarget = typeof globalThis !== 'undefined' ? globalThis : {};
-    const runtimeKey = globalTarget.__APIM_SUBSCRIPTION_KEY__ ?? globalTarget.APIM_SUBSCRIPTION_KEY ?? null;
+    const globalTarget = typeof globalThis !== 'undefined' ? globalThis : {}
+    const runtimeKey = globalTarget.__APIM_SUBSCRIPTION_KEY__ ?? globalTarget.APIM_SUBSCRIPTION_KEY ?? null
 
     if (runtimeKey) {
-        const normalizedRuntimeKey = String(runtimeKey).trim();
+        const normalizedRuntimeKey = String(runtimeKey).trim()
         if (normalizedRuntimeKey) {
-            return normalizedRuntimeKey;
+            return normalizedRuntimeKey
         }
     }
 
-    const env = import.meta.env || {};
-    const envKey = env.APIM_SUBSCRIPTION_KEY ?? env.VITE_APIM_SUBSCRIPTION_KEY ?? null;
+    const storedKey = readStoredSubscriptionKey()
+    if (storedKey) {
+        return storedKey
+    }
+
+    const env = import.meta.env || {}
+    const envKey = env.APIM_SUBSCRIPTION_KEY ?? env.VITE_APIM_SUBSCRIPTION_KEY ?? null
 
     if (envKey) {
-        const normalizedEnvKey = String(envKey).trim();
+        const normalizedEnvKey = String(envKey).trim()
         if (normalizedEnvKey) {
-            return normalizedEnvKey;
+            return normalizedEnvKey
         }
     }
 
-    return null;
+    return null
 }
 
 if (!apiBaseUrl) {
@@ -112,4 +155,16 @@ export function getApiBaseUrl() {
 
 export function getSubscriptionKey() {
     return resolveSubscriptionKey()
+}
+
+export function persistSubscriptionKey(value) {
+    writeStoredSubscriptionKey(value ? String(value).trim() : null)
+}
+
+export function clearStoredSubscriptionKey() {
+    writeStoredSubscriptionKey(null)
+}
+
+export function getSubscriptionKeyStorageKey() {
+    return SUBSCRIPTION_KEY_STORAGE_KEY
 }
