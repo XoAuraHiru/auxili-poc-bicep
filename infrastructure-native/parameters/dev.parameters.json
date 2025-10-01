@@ -38,6 +38,7 @@
         "allowedOrigins": {
             "value": [
                 "http://localhost:3000",
+                "http://localhost:5173",
                 "https://oauth.pstmn.io",
                 "https://auxili-poc-bicep.vercel.app"
             ]
