@@ -62,6 +62,19 @@ function toSlug(value) {
   );
 }
 
+function maskKey(key) {
+  if (!key) {
+    return null;
+  }
+
+  const trimmed = String(key).trim();
+  if (trimmed.length <= 8) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
 function TodoTester({
   title,
   description,
@@ -90,18 +103,39 @@ function TodoTester({
     persistSubscriptionKey(trimmedSubscriptionKey || null);
   }, [trimmedSubscriptionKey]);
 
+  const fallbackSubscriptionKey = useMemo(() => {
+    if (trimmedSubscriptionKey) {
+      return null;
+    }
+
+    return getSubscriptionKey();
+  }, [trimmedSubscriptionKey]);
+
+  const resolvedSubscriptionKey = useMemo(() => {
+    return trimmedSubscriptionKey || fallbackSubscriptionKey || "";
+  }, [trimmedSubscriptionKey, fallbackSubscriptionKey]);
+
   const subscriptionKeyStatus = useMemo(() => {
     if (trimmedSubscriptionKey) {
-      return { tone: "ready" };
+      return { tone: "ready", label: "Using override below" };
     }
 
-    const fallback = getSubscriptionKey();
-    if (fallback) {
-      return { tone: "using-fallback" };
+    if (fallbackSubscriptionKey) {
+      return {
+        tone: "using-fallback",
+        label: "Using global/runtime key",
+      };
     }
 
-    return { tone: "missing" };
-  }, [trimmedSubscriptionKey]);
+    return { tone: "missing", label: "Missing subscription key" };
+  }, [trimmedSubscriptionKey, fallbackSubscriptionKey]);
+
+  const subscriptionKeyPreview = useMemo(() => {
+    if (!resolvedSubscriptionKey) {
+      return null;
+    }
+    return maskKey(resolvedSubscriptionKey);
+  }, [resolvedSubscriptionKey]);
 
   const handleAction = async (action) => {
     setIsPending(true);
@@ -111,8 +145,7 @@ function TodoTester({
     try {
       const trimmedId = todoId.trim();
       const needsId = action !== "create" || requireIdForCreate;
-      const resolvedSubscriptionKey =
-        trimmedSubscriptionKey || getSubscriptionKey() || undefined;
+      const effectiveSubscriptionKey = resolvedSubscriptionKey || undefined;
 
       if (needsId && !trimmedId) {
         throw new Error("Todo ID is required for this operation.");
@@ -131,14 +164,14 @@ function TodoTester({
           response = await createTodo({
             todo: parsedPayload,
             token,
-            subscriptionKey: resolvedSubscriptionKey,
+            subscriptionKey: effectiveSubscriptionKey,
           });
           break;
         case "get":
           response = await getTodo({
             id: trimmedId,
             token,
-            subscriptionKey: resolvedSubscriptionKey,
+            subscriptionKey: effectiveSubscriptionKey,
           });
           break;
         case "update":
@@ -146,14 +179,14 @@ function TodoTester({
             id: trimmedId,
             todo: parsedPayload,
             token,
-            subscriptionKey: resolvedSubscriptionKey,
+            subscriptionKey: effectiveSubscriptionKey,
           });
           break;
         case "delete":
           response = await deleteTodo({
             id: trimmedId,
             token,
-            subscriptionKey: resolvedSubscriptionKey,
+            subscriptionKey: effectiveSubscriptionKey,
           });
           break;
         default:
@@ -210,6 +243,12 @@ function TodoTester({
             to any globally provided <code>APIM_SUBSCRIPTION_KEY</code> (or the
             legacy <code>VITE_APIM_SUBSCRIPTION_KEY</code>).
           </p>
+          {subscriptionKeyPreview && (
+            <p className="muted todo-tester__hint">
+              Active key: <code>{subscriptionKeyPreview}</code> ({" "}
+              {subscriptionKeyStatus.label})
+            </p>
+          )}
           {!trimmedSubscriptionKey &&
             subscriptionKeyStatus.tone === "missing" && (
               <p className="todo-tester__alert" role="alert">
