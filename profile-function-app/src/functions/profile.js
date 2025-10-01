@@ -70,7 +70,7 @@ const handleError = (error, correlationId, context) => {
 app.http('GetMyProfile', {
     route: 'profile/me',
     methods: ['GET'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const { correlationId, user } = withRequestContext(request, context);
 
@@ -92,7 +92,7 @@ app.http('GetMyProfile', {
 app.http('UpdateMyProfile', {
     route: 'profile/me',
     methods: ['PUT'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const { correlationId, user } = withRequestContext(request, context);
 
@@ -123,7 +123,7 @@ app.http('UpdateMyProfile', {
 app.http('GetUserSettings', {
     route: 'profile/settings',
     methods: ['GET'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const { correlationId, user } = withRequestContext(request, context);
 
@@ -145,7 +145,7 @@ app.http('GetUserSettings', {
 app.http('DeleteMyProfile', {
     route: 'profile/me',
     methods: ['DELETE'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const { correlationId, user } = withRequestContext(request, context);
 
@@ -170,7 +170,7 @@ app.http('DeleteMyProfile', {
 app.http('ProfileHealth', {
     route: 'profile/health',
     methods: ['GET'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async () => successResponse({
         status: 200,
         correlationId: 'healthcheck',

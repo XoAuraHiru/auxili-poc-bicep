@@ -37,7 +37,7 @@ const cloneForValidation = (value) => JSON.parse(JSON.stringify(value));
 app.http('NativeAuthHealth', {
     route: 'auth/health',
     methods: ['GET'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         try {
@@ -57,7 +57,7 @@ app.http('NativeAuthHealth', {
 app.http('NativeSignUpStart', {
     route: 'auth/signup/start',
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const body = await parseJsonBody(request, context, correlationId, 'SignUpStart');
@@ -88,7 +88,7 @@ app.http('NativeSignUpStart', {
 app.http('NativeSignUpContinue', {
     route: 'auth/signup/continue',
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const body = await parseJsonBody(request, context, correlationId, 'SignUpContinue');
@@ -119,7 +119,7 @@ app.http('NativeSignUpContinue', {
 app.http('NativePasswordSignIn', {
     route: 'auth/password',
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const body = await parseJsonBody(request, context, correlationId, 'PasswordSignIn');
@@ -147,7 +147,7 @@ app.http('NativePasswordSignIn', {
 app.http('NativePasswordResetStart', {
     route: 'auth/password/reset/start',
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const body = await parseJsonBody(request, context, correlationId, 'PasswordResetStart');
@@ -170,7 +170,7 @@ app.http('NativePasswordResetStart', {
 app.http('NativePasswordResetContinue', {
     route: 'auth/password/reset/continue',
     methods: ['POST'],
-    authLevel: 'anonymous',
+    authLevel: 'function',
     handler: async (request, context) => {
         const correlationId = withCorrelation(context, request);
         const body = await parseJsonBody(request, context, correlationId, 'PasswordResetContinue');

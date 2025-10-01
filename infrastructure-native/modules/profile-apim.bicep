@@ -98,6 +98,7 @@ resource profileHealthOperation 'Microsoft.ApiManagement/service/apis/operations
 var profileFunctionKey = listkeys('${profileFunctionApp.id}/host/default', '2022-09-01').functionKeys.default
 var inboundPlaceholder = '  <inbound>\n    <base />'
 var functionKeyInjectedInbound = format('  <inbound>\n    <base />\n    <!-- Function App Authentication -->\n    <set-header name="x-functions-key" exists-action="override">\n      <value>{0}</value>\n    </set-header>', profileFunctionKey)
+var publicPolicyWithFunctionKey = replace(publicApiPolicy, inboundPlaceholder, functionKeyInjectedInbound)
 
 resource profileApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-preview' = {
   name: 'policy'
@@ -111,7 +112,7 @@ resource profileHealthPolicy 'Microsoft.ApiManagement/service/apis/operations/po
   name: 'policy'
   parent: profileHealthOperation
   properties: {
-    value: publicApiPolicy
+    value: publicPolicyWithFunctionKey
   }
 }
 

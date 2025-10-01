@@ -132,7 +132,7 @@ resource healthOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/
   name: 'policy'
   parent: healthOperation
   properties: {
-    value: publicApiPolicy
+    value: publicPolicyWithFunctionKey
   }
 }
 
