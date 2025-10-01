@@ -9,6 +9,7 @@ import {
 import { getApiBaseUrl } from "../services/apiClient.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyProfile } from "../services/profileApi.js";
+import TodoTester from "../components/TodoTester.jsx";
 
 const formatJson = (value) => {
   if (!value) return null;
@@ -370,6 +371,15 @@ function LoginPage() {
           </>
         )}
       </div>
+
+      <TodoTester
+        title="Todo API (anonymous calls)"
+        description="Send requests to the todo endpoints without signing in to confirm APIM enforces authentication."
+        token={null}
+        variant="centered"
+        authModeLabel="No bearer token attached"
+        initialTodoId="demo-id"
+      />
       {isDevBuild && (
         <div className="dev-environment-details">
           <p className="dev-environment-details__label">

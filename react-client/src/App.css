@@ -318,11 +318,56 @@
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
 }
 
+.form-group textarea {
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 0.65rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.95rem;
+  font-family: "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  resize: vertical;
+  min-height: 160px;
+  transition: border 0.18s ease, box-shadow 0.18s ease;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-color: rgba(79, 70, 229, 0.55);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
+}
+
 .error-message {
   color: #b91c1c;
   background: rgba(239, 68, 68, 0.12);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
+}
+
+.todo-tester__body {
+  display: grid;
+  gap: 1.25rem;
+  padding-bottom: 2rem;
+}
+
+.todo-tester__actions {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.todo-tester__reset {
+  margin-top: 0.75rem;
+  align-self: flex-start;
+}
+
+.todo-tester__result {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.todo-tester__auth-label {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(15, 23, 42, 0.7);
 }
 
 .access-check-message {

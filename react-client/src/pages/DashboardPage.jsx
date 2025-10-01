@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import LoadingOverlay from "../components/LoadingOverlay.jsx";
+import TodoTester from "../components/TodoTester.jsx";
 import { useAuth } from "../hooks/useAuth.js";
 import {
   clearAuthState,
@@ -233,6 +234,17 @@ function DashboardPage() {
             </button>
           </div>
         </div>
+
+        <TodoTester
+          title="Todo API (signed in)"
+          description="Exercise the todo endpoints through API Management using your current bearer token."
+          token={tokens?.accessToken || null}
+          authModeLabel={
+            tokens?.accessToken
+              ? "Bearer token attached automatically"
+              : "No access token detected. Requests will be anonymous."
+          }
+        />
 
         <div className="card card--span">
           <header className="card__header">
