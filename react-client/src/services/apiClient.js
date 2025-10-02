@@ -2,6 +2,28 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?$/, '')
 
 const SUBSCRIPTION_KEY_STORAGE_KEY = 'auxili.apim.subscriptionKey'
 
+function setRuntimeSubscriptionKey(value) {
+    if (typeof globalThis === 'undefined') {
+        return
+    }
+
+    if (!value) {
+        delete globalThis.__APIM_SUBSCRIPTION_KEY__
+        delete globalThis.APIM_SUBSCRIPTION_KEY
+        return
+    }
+
+    const normalized = String(value).trim()
+    if (!normalized) {
+        delete globalThis.__APIM_SUBSCRIPTION_KEY__
+        delete globalThis.APIM_SUBSCRIPTION_KEY
+        return
+    }
+
+    globalThis.__APIM_SUBSCRIPTION_KEY__ = normalized
+    globalThis.APIM_SUBSCRIPTION_KEY = normalized
+}
+
 function readStoredSubscriptionKey() {
     if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
         return null
@@ -45,12 +67,14 @@ function resolveSubscriptionKey() {
     if (runtimeKey) {
         const normalizedRuntimeKey = String(runtimeKey).trim()
         if (normalizedRuntimeKey) {
+            setRuntimeSubscriptionKey(normalizedRuntimeKey)
             return normalizedRuntimeKey
         }
     }
 
     const storedKey = readStoredSubscriptionKey()
     if (storedKey) {
+        setRuntimeSubscriptionKey(storedKey)
         return storedKey
     }
 
@@ -60,6 +84,7 @@ function resolveSubscriptionKey() {
     if (envKey) {
         const normalizedEnvKey = String(envKey).trim()
         if (normalizedEnvKey) {
+            setRuntimeSubscriptionKey(normalizedEnvKey)
             return normalizedEnvKey
         }
     }
@@ -158,11 +183,14 @@ export function getSubscriptionKey() {
 }
 
 export function persistSubscriptionKey(value) {
-    writeStoredSubscriptionKey(value ? String(value).trim() : null)
+    const normalized = value ? String(value).trim() : null
+    writeStoredSubscriptionKey(normalized)
+    setRuntimeSubscriptionKey(normalized)
 }
 
 export function clearStoredSubscriptionKey() {
     writeStoredSubscriptionKey(null)
+    setRuntimeSubscriptionKey(null)
 }
 
 export function getSubscriptionKeyStorageKey() {
